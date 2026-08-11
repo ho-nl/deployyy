@@ -1,0 +1,154 @@
+# Central Magento 2 build — reusable workflow (workstream #66, trede 1).
+#
+# A project repo calls this with ~6 lines (see platform/build/README.md);
+# everything else is derived, never declared:
+#   - The RELEASE LINE comes from composer.json (D2): the platform package
+#     requirement (mage-os/ or magento/product-community-edition) maps to a
+#     recipe under platform/build/<line>/ in THIS repo. Unknown line or a
+#     line without a recipe fails loudly, naming what IS supported.
+#   - The DOCKERFILE is the platform recipe for that line — unless the repo
+#     ships its own Dockerfile (escape hatch: repo file wins wholesale).
+#     .platform/* support files are overlaid PER FILE (a repo-local copy of
+#     one file keeps the platform versions of the others).
+#     Recipes live in THIS public repo (recipes/<line>/): no token, no
+#     workflow-access setting — callable from any org, third-party ready.
+#   - LOCALES for the DB-less static-content:deploy come from deployyy.json
+#     (.build.locales, array), default en_US.
+#   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>
+#     — the exact commit-keyed tags the operator verifies before deploying.
+#
+# Secrets (pass `secrets: inherit` in the caller): the composer auth.json
+# content as PER-PROJECT secret — COMPOSER_AUTH (preferred name) or the
+# legacy MAGENTO_AUTH_JSON; one of the two must exist on the calling repo.
+# Deliberately NOT an org secret: the platform must work for third parties,
+# and a third-party org never has ours. No other setup needed — this repo
+# is public.
+
+name: magento2-build
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        default: ubicloud-standard-16
+        description: Runner label (trede 2 of #66 moves this to hosted pools)
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch platform build recipes
+        uses: actions/checkout@v4
+        with:
+          repository: ho-nl/deployyy
+          path: .platform-recipes
+          sparse-checkout: recipes
+
+      - name: Resolve release line, locales and build context
+        id: resolve
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, shutil, sys
+
+          # D2: the line is DERIVED from composer.json, never declared.
+          # (deployyy.json's receiver-era `base` field is ignored on purpose.)
+          req = json.load(open("composer.json")).get("require", {})
+          LINES = [  # (package, version-prefix) -> recipe id
+              ("mage-os/product-community-edition", "3.2.", "mageos-320"),
+              ("magento/product-community-edition", "2.4.9", "magento-249"),
+              ("magento/product-community-edition", "2.4.8", "magento-248-p5"),
+          ]
+          line = next((l for p, v, l in LINES
+                       if p in req and req[p].lstrip("~^").startswith(v)), None)
+          if not line:
+              plats = {p: v for p, v in req.items() if "product-community-edition" in p}
+              sys.exit(f"FATAL: no supported release line in composer.json "
+                       f"(found: {plats or 'none'}; supported: {[l for _,_,l in LINES]})")
+
+          recipe = pathlib.Path(".platform-recipes/recipes") / line
+          if not recipe.is_dir():
+              have = sorted(p.name for p in pathlib.Path(".platform-recipes/recipes").iterdir() if p.is_dir())
+              sys.exit(f"FATAL: line {line} resolved but has no platform recipe yet "
+                       f"(recipes exist for: {have}). A recipe row exists only "
+                       f"after live validation — add it in deployyy-operator "
+                       f"platform/build/{line}/ or ship a repo-local Dockerfile.")
+
+          # Escape hatch: a repo-local Dockerfile wins wholesale.
+          if pathlib.Path("Dockerfile").exists():
+              print("repo-local Dockerfile present -> platform recipe Dockerfile NOT overlaid")
+          else:
+              shutil.copy(recipe / "Dockerfile", "Dockerfile")
+              print(f"platform Dockerfile overlaid from recipe {line}")
+
+          # Support files: per-file overlay (repo-local file wins).
+          pathlib.Path(".platform").mkdir(exist_ok=True)
+          for f in sorted((recipe / "platform").iterdir()):
+              dest = pathlib.Path(".platform") / f.name
+              if dest.exists():
+                  print(f".platform/{f.name}: repo-local, kept")
+              else:
+                  shutil.copy(f, dest)
+                  print(f".platform/{f.name}: overlaid from recipe")
+
+          # Locales for the DB-less static-content:deploy.
+          locales = "en_US"
+          try:
+              locs = json.load(open("deployyy.json")).get("build", {}).get("locales", [])
+              if locs:
+                  locales = " ".join(locs)
+          except FileNotFoundError:
+              pass
+          print(f"line={line} locales={locales}")
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          print(f"line={line}", file=out)
+          print(f"locales={locales}", file=out)
+          print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          EOF
+
+      - name: Write auth.json
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+          MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+        run: |
+          if [ -n "$COMPOSER_AUTH" ]; then echo "$COMPOSER_AUTH" > auth.json
+          elif [ -n "$MAGENTO_AUTH_JSON" ]; then echo "$MAGENTO_AUTH_JSON" > auth.json
+          else echo "FATAL: neither org secret COMPOSER_AUTH nor repo secret MAGENTO_AUTH_JSON is set"; exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push php-fpm
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: php-fpm
+          push: true
+          build-args: |
+            PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
+          tags: ghcr.io/${{ github.repository }}:php-fpm-${{ steps.resolve.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build + push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: nginx
+          push: true
+          build-args: |
+            PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
+          tags: ghcr.io/${{ github.repository }}:nginx-${{ steps.resolve.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

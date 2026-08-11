@@ -1,14 +1,14 @@
 # deployyy
 
-Het public-facing deel van het [deployyy-platform](https://deployyy.app):
-herbruikbare GitHub-Actions-build-workflows en platform-beheerde
-Dockerfile-recepten per release-lijn. Een project-repo op het platform is
-alleen nog code + een caller van ~6 regels — al het andere wordt afgeleid.
+The public-facing part of the [deployyy platform](https://deployyy.app):
+reusable GitHub Actions build workflows and platform-managed Dockerfile
+recipes per release line. A project repository on the platform is just
+code plus a ~6-line caller — everything else is derived.
 
-## Magento 2 bouwen
+## Building Magento 2
 
 ```yaml
-# .github/workflows/preview-build.yaml in je project-repo
+# .github/workflows/preview-build.yaml in your project repository
 name: Preview build
 on:
   push:
@@ -22,40 +22,42 @@ jobs:
     secrets: inherit
 ```
 
-De workflow:
+The workflow:
 
-1. **Leidt de release-lijn af** uit `composer.json` (nooit gedeclareerd):
-   `mage-os/product-community-edition: 3.2.*` → `mageos-320`, enz.
-2. **Bouwt met het platform-recept** van die lijn uit [`recipes/`](recipes/)
-   — Dockerfile + `.platform/`-supportbestanden. Verbeteringen aan een
-   recept bereiken elk consumerend repo bij z'n volgende build.
-3. **Escape-hatch per niveau**: een repo-eigen `Dockerfile` wint wholesale;
-   repo-eigen `.platform/<file>`-bestanden winnen per bestand.
-4. **Per-project knoppen** staan in `deployyy.json`, bijv.
-   `{"build": {"locales": ["nl_NL", "en_US"]}}` voor de
-   static-content-locales (default `en_US`).
-5. **Pusht commit-keyed tags** (`php-fpm-<sha7>` + `nginx-<sha7>`) naar
-   `ghcr.io/<jouw-repo>` — de deployyy-operator verifieert die tags en
-   deployt elke omgeving zelf. Niets deployt vanuit CI.
+1. **Derives the release line** from `composer.json` (never declared):
+   `mage-os/product-community-edition: 3.2.*` → `mageos-320`, and so on.
+2. **Builds with the platform recipe** for that line from
+   [`recipes/`](recipes/) — Dockerfile + `.platform/` support files.
+   Improvements to a recipe reach every consuming repository on its next
+   build.
+3. **Escape hatches at every level**: a repo-local `Dockerfile` wins
+   wholesale; repo-local `.platform/<file>` files win per file.
+4. **Per-project knobs** live in `deployyy.json`, e.g.
+   `{"build": {"locales": ["nl_NL", "en_US"]}}` for the static-content
+   locales (default `en_US`).
+5. **Pushes commit-keyed tags** (`php-fpm-<sha7>` + `nginx-<sha7>`) to
+   `ghcr.io/<your-repo>` — the deployyy operator verifies those tags and
+   deploys every environment itself. Nothing deploys from CI.
 
-Eén secret op je eigen repo: `COMPOSER_AUTH` (de inhoud van je
-`auth.json`; de legacy-naam `MAGENTO_AUTH_JSON` werkt ook). Bewust géén
-org-secret — het platform werkt ook voor externe organisaties.
+One secret on your own repository: `COMPOSER_AUTH` (the contents of your
+`auth.json`; the legacy name `MAGENTO_AUTH_JSON` also works). Deliberately
+NOT an organization secret — the platform works for external
+organizations, which never have ours.
 
-## Recepten
+## Recipes
 
-| Lijn | Dir | Status |
+| Line | Dir | Status |
 |---|---|---|
-| `mageos-320` | [`recipes/mageos-320/`](recipes/mageos-320/) | ✅ live gevalideerd |
+| `mageos-320` | [`recipes/mageos-320/`](recipes/mageos-320/) | ✅ validated live |
 
-Een recept-rij bestaat pas na live validatie. Een lijn zonder recept faalt
-de build met een duidelijke melding en de lijst van wat wél kan; je repo
-kan dan tijdelijk een eigen Dockerfile shippen.
+A recipe row only exists after live validation. A line without a recipe
+fails the build with a clear message listing what IS supported; your
+repository can ship its own Dockerfile in the meantime.
 
-## Achtergrond
+## Background
 
-De operator zelf ([ho-nl/deployyy-operator](https://github.com/ho-nl/deployyy-operator))
-beheert omgevingen als CRD's (branch = environment, previews met
-scale-to-zero, migraties als state-machine). Dit repo is de publieke rand:
-alles wat een project-repo — ook van derden — nodig heeft om op het
-platform te bouwen.
+The operator itself ([ho-nl/deployyy-operator](https://github.com/ho-nl/deployyy-operator))
+manages environments as CRDs (branch = environment, previews with
+scale-to-zero, migrations as a checkpointed state machine). This
+repository is the public edge: everything a project repository — including
+a third party's — needs to build on the platform.

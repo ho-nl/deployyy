@@ -1,11 +1,14 @@
 # deployyy
 
-The public-facing part of the [deployyy platform](https://deployyy.app):
-reusable GitHub Actions build workflows and platform-managed Dockerfile
-recipes per release line. A project repository on the platform is just
-code plus a ~6-line caller — everything else is derived.
+This is the public part of the [deployyy platform](https://deployyy.app).
+It contains reusable GitHub Actions build workflows. It also contains the
+platform Dockerfile recipes for each release line. A project repository
+on the platform contains only code and a short caller workflow. The
+platform derives all other data.
 
-## Building Magento 2
+## Build Magento 2
+
+Add this caller workflow to your project repository:
 
 ```yaml
 # .github/workflows/preview-build.yaml in your project repository
@@ -22,27 +25,29 @@ jobs:
     secrets: inherit
 ```
 
-The workflow:
+The workflow does these steps:
 
-1. **Derives the release line** from `composer.json` (never declared):
-   `mage-os/product-community-edition: 3.2.*` → `mageos-320`, and so on.
-2. **Builds with the platform recipe** for that line from
-   [`recipes/`](recipes/) — Dockerfile + `.platform/` support files.
-   Improvements to a recipe reach every consuming repository on its next
-   build.
-3. **Escape hatches at every level**: a repo-local `Dockerfile` wins
-   wholesale; repo-local `.platform/<file>` files win per file.
-4. **Per-project knobs** live in `deployyy.json`, e.g.
-   `{"build": {"locales": ["nl_NL", "en_US"]}}` for the static-content
-   locales (default `en_US`).
-5. **Pushes commit-keyed tags** (`php-fpm-<sha7>` + `nginx-<sha7>`) to
-   `ghcr.io/<your-repo>` — the deployyy operator verifies those tags and
-   deploys every environment itself. Nothing deploys from CI.
+1. It reads `composer.json` and finds the release line. You do not
+   declare the release line. Example: `mage-os/product-community-edition:
+   3.2.*` gives the line `mageos-320`.
+2. It builds your project with the platform recipe for that line. The
+   recipes are in [`recipes/`](recipes/). Each recipe contains a
+   Dockerfile and `.platform/` support files. When we improve a recipe,
+   each project gets the improvement on its next build.
+3. You can replace the recipe. A `Dockerfile` in your repository replaces
+   the full recipe Dockerfile. A file in your `.platform/` directory
+   replaces only that one file.
+4. You can set project options in `deployyy.json`. Example:
+   `{"build": {"locales": ["nl_NL", "en_US"]}}` sets the static-content
+   locales. The default locale is `en_US`.
+5. It pushes two images to `ghcr.io/<your-repo>`. The tags contain the
+   commit: `php-fpm-<sha7>` and `nginx-<sha7>`. The deployyy operator
+   finds these tags and deploys each environment. CI does not deploy.
 
-One secret on your own repository: `COMPOSER_AUTH` (the contents of your
-`auth.json`; the legacy name `MAGENTO_AUTH_JSON` also works). Deliberately
-NOT an organization secret — the platform works for external
-organizations, which never have ours.
+Set one secret on your repository: `COMPOSER_AUTH`. Its value is the
+content of your `auth.json`. The old name `MAGENTO_AUTH_JSON` also works.
+The platform does not use organization secrets: external organizations do
+not have them.
 
 ## Recipes
 
@@ -50,14 +55,16 @@ organizations, which never have ours.
 |---|---|---|
 | `mageos-320` | [`recipes/mageos-320/`](recipes/mageos-320/) | ✅ validated live |
 
-A recipe row only exists after live validation. A line without a recipe
-fails the build with a clear message listing what IS supported; your
-repository can ship its own Dockerfile in the meantime.
+A recipe is added only after a live validation. When a line has no
+recipe, the build stops with a clear message. The message shows the
+supported lines. Your repository can ship its own Dockerfile until the
+recipe is available.
 
 ## Background
 
-The operator itself ([ho-nl/deployyy-operator](https://github.com/ho-nl/deployyy-operator))
-manages environments as CRDs (branch = environment, previews with
-scale-to-zero, migrations as a checkpointed state machine). This
-repository is the public edge: everything a project repository — including
-a third party's — needs to build on the platform.
+The [deployyy operator](https://github.com/ho-nl/deployyy-operator)
+manages environments as Kubernetes resources. Each branch is an
+environment. Preview environments scale to zero. Migrations are a
+checkpointed state machine. This repository is the public edge of that
+platform. It contains everything a project repository needs for a build
+on the platform — also for third parties.

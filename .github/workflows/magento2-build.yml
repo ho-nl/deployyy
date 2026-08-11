@@ -12,8 +12,10 @@
 #     one file keeps the platform versions of the others).
 #     Recipes live in THIS public repo (recipes/<line>/): no token, no
 #     workflow-access setting — callable from any org, third-party ready.
-#   - LOCALES for the DB-less static-content:deploy come from deployyy.json
-#     (.build.locales, array), default en_US.
+#   - LOCALES for the DB-less static-content:deploy come from the repository
+#     Actions variable DEPLOYYY_MAGENTO_LOCALES (set by the deployyy operator
+#     from the app configuration). Default en_US. A deployyy.json
+#     .build.locales list is a transitional fallback only.
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>
 #     — the exact commit-keyed tags the operator verifies before deploying.
 #
@@ -52,6 +54,8 @@ jobs:
 
       - name: Resolve release line, locales and build context
         id: resolve
+        env:
+          DEPLOYYY_MAGENTO_LOCALES: ${{ vars.DEPLOYYY_MAGENTO_LOCALES }}
         run: |
           python3 - <<'EOF'
           import json, os, pathlib, shutil, sys
@@ -96,14 +100,20 @@ jobs:
                   shutil.copy(f, dest)
                   print(f".platform/{f.name}: overlaid from recipe")
 
-          # Locales for the DB-less static-content:deploy.
-          locales = "en_US"
-          try:
-              locs = json.load(open("deployyy.json")).get("build", {}).get("locales", [])
-              if locs:
-                  locales = " ".join(locs)
-          except FileNotFoundError:
-              pass
+          # Locales for the DB-less static-content:deploy. The platform is
+          # the source of truth: the operator mirrors the app's configured
+          # locales into the repository Actions variable
+          # DEPLOYYY_MAGENTO_LOCALES. A deployyy.json `.build.locales` list
+          # is a transitional fallback only; the default is en_US.
+          locales = os.environ.get("DEPLOYYY_MAGENTO_LOCALES", "").strip()
+          if not locales:
+              try:
+                  locs = json.load(open("deployyy.json")).get("build", {}).get("locales", [])
+                  if locs:
+                      locales = " ".join(locs)
+              except FileNotFoundError:
+                  pass
+          locales = locales or "en_US"
           print(f"line={line} locales={locales}")
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"line={line}", file=out)

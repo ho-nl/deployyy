@@ -27,27 +27,7 @@ keys). Composer reads this variable natively.
 The platform does not use organization secrets. Your keys stay in your
 repository.
 
-### Step 3 — Create a `deployyy.json`
-
-Add a `deployyy.json` file to the root of your repository. It declares
-your project choices:
-
-```json
-{
-  "services": {
-    "database": "mariadb-12.3"
-  },
-  "build": {
-    "locales": ["nl_NL", "en_US"]
-  }
-}
-```
-
-- `services` selects your service stack (database, search, queue, cache).
-  The platform validates each choice against the compatibility matrix.
-- `build.locales` sets the static-content locales. The default is `en_US`.
-
-### Step 4 — Add the build workflows
+### Step 3 — Add the build workflows
 
 Add two caller workflows to your repository:
 
@@ -81,13 +61,29 @@ jobs:
     secrets: inherit
 ```
 
-### Step 5 — Push a branch
+### Step 4 — Push a branch
 
 Push a branch. The workflow builds two images and pushes them to
 `ghcr.io/<your-repo>` with commit tags (`php-fpm-<sha7>`, `nginx-<sha7>`).
 The operator finds the tags and deploys your preview environment at
 `https://<branch>.<project>.deployyy.app`. CI does not deploy — the
 operator does.
+
+## Configuration
+
+Your repository contains no platform configuration file. The platform
+holds your project configuration:
+
+- The release line comes from your `composer.json`. You do not declare it.
+- Your service stack (database, search, queue, cache) is part of your
+  project configuration on the platform.
+- The static-content locales come from the repository variable
+  `DEPLOYYY_MAGENTO_LOCALES`. The platform sets this variable from your
+  project configuration. The default is `en_US`. Do not edit the variable
+  by hand — the platform converges it.
+
+To change your configuration, contact the platform team. A dashboard for
+self-service configuration is planned.
 
 ## How the build works
 

@@ -77,3 +77,19 @@ console.log(`\nPacked ${count} pages (${(totalSize / 1024).toFixed(0)}KB) for bu
 execSync(`tar -czf cache-seed.tar.gz -C cache-seed .`)
 const tarSize = statSync('cache-seed.tar.gz').size
 console.log(`Created cache-seed.tar.gz (${(tarSize / 1024).toFixed(0)}KB)`)
+
+// The seed rides IN the runtime image, which is only acceptable while it
+// stays small. GraphCommerce keeps the prerender set small by design
+// (limited getStaticPaths; the rest is fallback + runtime ISR), so in
+// practice this is a few MB. If a project ever prerenders its full catalog
+// the image would grow and every pull (deploys, preview wakes) would slow
+// down — that is the moment to ship the seed as a separate image consumed
+// by an init container instead. Warn well before it hurts.
+const SEED_WARN_MB = parseInt(process.env.CACHE_SEED_WARN_MB || '64', 10)
+if (tarSize > SEED_WARN_MB * 1024 * 1024) {
+  console.log(
+    `::warning::cache-seed.tar.gz is ${(tarSize / 1024 / 1024).toFixed(0)}MB ` +
+      `(threshold ${SEED_WARN_MB}MB). This rides in the runtime image and slows ` +
+      `every image pull. Reduce the prerender set, or move the seed to a separate image.`,
+  )
+}

@@ -85,6 +85,17 @@ holds your project configuration:
 To change your configuration, contact the platform team. A dashboard for
 self-service configuration is planned.
 
+### GraphCommerce: shared page cache
+
+GraphCommerce projects carry no cache code. The build workflow downloads
+[`graphcommerce/cache-handler.mjs`](graphcommerce/cache-handler.mjs) into the
+build and sets `NEXT_CACHE_HANDLER_PATH` — Next.js's own extension point for
+a custom cache store. At runtime one env variable configures it:
+`CACHE_DIR` points at the shared cache volume the platform mounts. Without
+`CACHE_DIR` (local development) the cache is private to the process. Do not
+set `cacheHandler` in your `next.config` — that would replace the platform
+handler.
+
 ## How the build works
 
 1. The workflow reads `composer.json` and finds your release line.

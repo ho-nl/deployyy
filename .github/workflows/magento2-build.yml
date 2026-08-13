@@ -64,7 +64,11 @@ jobs:
           # (deployyy.json's receiver-era `base` field is ignored on purpose.)
           req = json.load(open("composer.json")).get("require", {})
           LINES = [  # (package, version-prefix) -> recipe id
-              ("mage-os/product-community-edition", "3.2.", "mageos-320"),
+              # Mage OS 3.x are security releases of one line (same 2.4.9
+              # core, same service versions — 3.1/3.2/3.3/3.4 verified),
+              # so the match is MAJOR-level. A core change comes as a new
+              # major, which simply has no recipe until validated.
+              ("mage-os/product-community-edition", "3.", "mageos-3"),
               ("magento/product-community-edition", "2.4.9", "magento-249"),
               ("magento/product-community-edition", "2.4.8", "magento-248-p5"),
           ]

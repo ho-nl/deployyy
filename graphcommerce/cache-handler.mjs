@@ -130,6 +130,8 @@ export default class CacheHandler {
         if (Date.now() - ts < BUILD_GRACE_MS) continue
         await fs.rm(path.join(CACHE_DIR, 'data', buildId), { recursive: true, force: true })
         await fs.rm(path.join(dirs.builds(), buildId), { force: true })
+        // The seed Job's once-per-build marker goes with the build.
+        await fs.rm(path.join(CACHE_DIR, '_seeded', buildId), { force: true })
       } catch {}
     }
   }

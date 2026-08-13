@@ -99,7 +99,9 @@ handler.
 ## How the build works
 
 1. The workflow reads `composer.json` and finds your release line.
-   Example: `mage-os/product-community-edition: 3.2.*` gives `mageos-320`.
+   Example: `mage-os/product-community-edition: 3.*` gives `mageos-3` — Mage OS
+   3.x releases are security releases of one line (same Magento 2.4.9 core and
+   service versions), so the match is major-level.
    You do not declare the line.
 2. It builds with the platform recipe for that line from
    [`recipes/`](recipes/): a Dockerfile plus `.platform/` support files.
@@ -113,7 +115,7 @@ handler.
 
 | Line | Dir | Status |
 |---|---|---|
-| `mageos-320` | [`recipes/mageos-320/`](recipes/mageos-320/) | ✅ validated live |
+| `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | ✅ validated live (3.2.0, 3.4.0) |
 
 A recipe is added only after a live validation. When a line has no
 recipe, the build stops with a clear message that shows the supported

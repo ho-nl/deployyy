@@ -71,38 +71,47 @@ jobs:
               ("mage-os/product-community-edition", "3.", "mageos-3"),
               ("magento/product-community-edition", "2.4.9", "magento-249"),
               ("magento/product-community-edition", "2.4.8", "magento-248-p5"),
+              # Demo-ladder lines (project-backend): no platform recipe yet —
+              # these repos ship their own Dockerfile (escape hatch below).
+              ("magento/product-community-edition", "2.4.7", "magento-247"),
+              ("magento/product-community-edition", "2.4.6", "magento-246"),
           ]
           line = next((l for p, v, l in LINES
-                       if p in req and req[p].lstrip("~^").startswith(v)), None)
+                       if p in req and req[p].lstrip("~^>=v ").startswith(v)), None)
           if not line:
               plats = {p: v for p, v in req.items() if "product-community-edition" in p}
               sys.exit(f"FATAL: no supported release line in composer.json "
                        f"(found: {plats or 'none'}; supported: {[l for _,_,l in LINES]})")
 
+          # Escape hatch FIRST: a repo-local Dockerfile wins wholesale, and a
+          # line without a platform recipe is fine as long as the repo builds
+          # itself (the demo ladder ships a Dockerfile per version branch).
           recipe = pathlib.Path(".platform-recipes/recipes") / line
+          local_dockerfile = pathlib.Path("Dockerfile").exists()
           if not recipe.is_dir():
-              have = sorted(p.name for p in pathlib.Path(".platform-recipes/recipes").iterdir() if p.is_dir())
-              sys.exit(f"FATAL: line {line} resolved but has no platform recipe yet "
-                       f"(recipes exist for: {have}). A recipe row exists only "
-                       f"after live validation — add it in deployyy-operator "
-                       f"platform/build/{line}/ or ship a repo-local Dockerfile.")
-
-          # Escape hatch: a repo-local Dockerfile wins wholesale.
-          if pathlib.Path("Dockerfile").exists():
-              print("repo-local Dockerfile present -> platform recipe Dockerfile NOT overlaid")
+              if not local_dockerfile:
+                  have = sorted(p.name for p in pathlib.Path(".platform-recipes/recipes").iterdir() if p.is_dir())
+                  sys.exit(f"FATAL: line {line} resolved but has no platform recipe yet "
+                           f"(recipes exist for: {have}). A recipe row exists only "
+                           f"after live validation — add it in deployyy recipes/{line}/ "
+                           f"or ship a repo-local Dockerfile.")
+              print(f"line {line}: no platform recipe — repo-local Dockerfile builds as-is")
           else:
-              shutil.copy(recipe / "Dockerfile", "Dockerfile")
-              print(f"platform Dockerfile overlaid from recipe {line}")
-
-          # Support files: per-file overlay (repo-local file wins).
-          pathlib.Path(".platform").mkdir(exist_ok=True)
-          for f in sorted((recipe / "platform").iterdir()):
-              dest = pathlib.Path(".platform") / f.name
-              if dest.exists():
-                  print(f".platform/{f.name}: repo-local, kept")
+              if local_dockerfile:
+                  print("repo-local Dockerfile present -> platform recipe Dockerfile NOT overlaid")
               else:
-                  shutil.copy(f, dest)
-                  print(f".platform/{f.name}: overlaid from recipe")
+                  shutil.copy(recipe / "Dockerfile", "Dockerfile")
+                  print(f"platform Dockerfile overlaid from recipe {line}")
+
+              # Support files: per-file overlay (repo-local file wins).
+              pathlib.Path(".platform").mkdir(exist_ok=True)
+              for f in sorted((recipe / "platform").iterdir()):
+                  dest = pathlib.Path(".platform") / f.name
+                  if dest.exists():
+                      print(f".platform/{f.name}: repo-local, kept")
+                  else:
+                      shutil.copy(f, dest)
+                      print(f".platform/{f.name}: overlaid from recipe")
 
           # Locales for the DB-less static-content:deploy. The platform is
           # the source of truth: the operator mirrors the app's configured

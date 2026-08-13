@@ -162,7 +162,7 @@ jobs:
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
           tags: ghcr.io/${{ github.repository }}:php-fpm-${{ steps.resolve.outputs.sha_tag }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true
 
       - name: Build + push nginx
         uses: docker/build-push-action@v6
@@ -174,4 +174,4 @@ jobs:
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
           tags: ghcr.io/${{ github.repository }}:nginx-${{ steps.resolve.outputs.sha_tag }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true

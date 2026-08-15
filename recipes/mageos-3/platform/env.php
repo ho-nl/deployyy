@@ -117,6 +117,46 @@ if ($e('MAGENTO_BASE_URL')) {
     $config['system']['default']['web'] = [
         'unsecure' => ['base_url' => $e('MAGENTO_BASE_URL')],
         'secure' => ['base_url' => $e('MAGENTO_BASE_URL')],
+        // redirect_to_base=0 so the env still SERVES on its other hosts (the
+        // automatic deployyy.app host always routes) instead of 301-ing them to
+        // the canonical one. The operator decides the canonical host; this just
+        // stops Magento fighting it.
+        'url' => ['redirect_to_base' => '0'],
+    ];
+}
+
+// Per-store base_urls — classic multi-domain multi-store. The operator emits a
+// JSON object {store_view_code: base_url} (MAGENTO_STORE_BASE_URLS) from the
+// Environment's storeDomains; each lands in the `stores` scope so that store
+// view generates its URLs on its own domain. env.php's `system` section
+// outranks core_config_data at every scope, so this pins the store base_url
+// regardless of the imported database. The paired nginx Host->MAGE_RUN_CODE map
+// makes a Luma frontend resolve the store natively; a headless GraphCommerce
+// frontend ignores the run-code but still needs these for correct absolute URLs.
+if ($e('MAGENTO_STORE_BASE_URLS')) {
+    $storeBaseUrls = json_decode($e('MAGENTO_STORE_BASE_URLS'), true);
+    if (is_array($storeBaseUrls)) {
+        foreach ($storeBaseUrls as $storeCode => $baseUrl) {
+            if (!is_string($storeCode) || !is_string($baseUrl) || $baseUrl === '') {
+                continue;
+            }
+            $config['system']['stores'][$storeCode]['web'] = [
+                'unsecure' => ['base_url' => $baseUrl],
+                'secure' => ['base_url' => $baseUrl],
+            ];
+        }
+    }
+}
+
+// Dedicated admin hostname — Magento's custom admin URL. When the operator sets
+// MAGENTO_ADMIN_BASE_URL (from the Environment's adminDomain) the admin is
+// served on its own host instead of the storefront's. Empty = admin stays on
+// the default host + the admin frontName (the common case), so this block is
+// inert unless a dedicated admin domain is declared.
+if ($e('MAGENTO_ADMIN_BASE_URL')) {
+    $config['system']['default']['admin']['url'] = [
+        'use_custom' => '1',
+        'custom' => $e('MAGENTO_ADMIN_BASE_URL'),
     ];
 }
 

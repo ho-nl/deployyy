@@ -141,7 +141,17 @@ jobs:
         run: |
           if [ -n "$COMPOSER_AUTH" ]; then echo "$COMPOSER_AUTH" > auth.json
           elif [ -n "$MAGENTO_AUTH_JSON" ]; then echo "$MAGENTO_AUTH_JSON" > auth.json
-          else echo "FATAL: neither org secret COMPOSER_AUTH nor repo secret MAGENTO_AUTH_JSON is set"; exit 1
+          else
+            # No credentials configured. That is a VALID state, not a fatal one:
+            # a Mage-OS project resolves everything from public repositories
+            # (repo.mage-os.org + packagist) and needs no auth at all. Projects
+            # that DO pull Adobe Commerce / Magento Open Source / paid packages
+            # fail later at `composer install` with composer's own message
+            # naming the package that needs credentials — a better error than
+            # refusing to try. An empty auth.json keeps composer's auth
+            # plumbing happy without granting anything.
+            echo "no COMPOSER_AUTH / MAGENTO_AUTH_JSON configured — building with empty credentials (public packages only)"
+            echo '{}' > auth.json
           fi
 
       - uses: docker/setup-buildx-action@v3

@@ -110,6 +110,13 @@ handler.
 3. You can replace the recipe. A `Dockerfile` in your repository replaces
    the full recipe Dockerfile. A file in your `.platform/` directory
    replaces only that one file.
+4. Project patches are applied at install time. Put your
+   [vaimo/composer-patches](https://github.com/vaimo/composer-patches) files
+   in a `patches/` directory at the repository root (and point
+   `extra.patches-search` or `extra.patches` sources at it). The recipe
+   copies that directory into the build context **before** `composer
+   install`, so the plugin can apply the patches. A project without a
+   `patches/` directory builds unchanged.
 
 ## Recipes
 

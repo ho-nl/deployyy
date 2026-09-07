@@ -21,6 +21,17 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
 USER docker
 COPY --chown=docker:docker auth.json /home/docker/.composer/auth.json
 COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
+# The project's own patches (vaimo/composer-patches, `extra.patches-search: patches` or
+# `extra.patches` sources under ./patches/) MUST be in the context BEFORE `composer install`
+# — the plugin applies them during install, and a missing directory is a SILENT no-op:
+# every patch skipped, build green, unpatched image shipped (seen on the StyleSmuggler
+# 0-day, Sansec 2026-09-05, where the guard lives in exactly such a patch). The
+# character-class glob keeps the directory OPTIONAL (COPY fails on a plain missing source;
+# with composer.json as a guaranteed match it does not), so projects without patches build
+# unchanged; the stray composer.json copy is removed again. Layer caching is preserved:
+# only composer.json/lock and patches/ invalidate the install layer, not the whole tree.
+COPY --chown=docker:docker composer.json patche[s] /tmp/magento/patches/
+RUN rm -f /tmp/magento/patches/composer.json
 WORKDIR /tmp/magento
 RUN composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader \
     && rm -f /home/docker/.composer/auth.json

@@ -1,0 +1,117 @@
+# Central Laravel build — reusable workflow for deployyy LaravelApp projects.
+#
+# A project repo calls this with a few lines (see README); everything else is
+# derived:
+#   - PHP from composer.json `require.php` (the highest supported minor the
+#     constraint names: 8.4, 8.3 or 8.2; absent → 8.4).
+#   - The DOCKERFILE is recipes/laravel — unless the repo ships its own
+#     (a repo-local Dockerfile wins wholesale). .platform/* support files are
+#     overlaid per file (a repo-local copy of one file keeps the others).
+#   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>,
+#     the commit-keyed tags the operator verifies before a release.
+#
+# Secrets (`secrets: inherit`): COMPOSER_AUTH, optional — public packages
+# need none.
+
+name: laravel-build
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        default: ubicloud-standard-8
+        description: Runner label
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch platform build recipes
+        uses: actions/checkout@v4
+        with:
+          repository: ho-nl/deployyy
+          path: .platform-recipes
+          sparse-checkout: recipes
+
+      - name: Resolve PHP and build context
+        id: resolve
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, re, shutil
+
+          req = json.load(open("composer.json")).get("require", {})
+          constraint = req.get("php", "")
+          supported = ["8.4", "8.3", "8.2"]
+          named = set(re.findall(r"8\.\d+", constraint))
+          php = next((v for v in supported if v in named), None)
+          if php is None:
+              # `^8.1`/`>=8.0` and friends admit every supported line: take
+              # the newest. A constraint that names only unsupported lines
+              # still builds on the newest, and composer says if it cannot.
+              php = supported[0]
+          print(f"composer php constraint {constraint!r} -> PHP {php}")
+
+          recipe = pathlib.Path(".platform-recipes/recipes/laravel")
+          if pathlib.Path("Dockerfile").exists():
+              print("repo-local Dockerfile present -> platform recipe NOT overlaid")
+          else:
+              shutil.copy(recipe / "Dockerfile", "Dockerfile")
+              print("platform Dockerfile overlaid from recipes/laravel")
+          pathlib.Path(".platform").mkdir(exist_ok=True)
+          for f in sorted((recipe / "platform").iterdir()):
+              dest = pathlib.Path(".platform") / f.name
+              if dest.exists():
+                  print(f".platform/{f.name}: repo-local, kept")
+              else:
+                  shutil.copy(f, dest)
+                  print(f".platform/{f.name}: overlaid from recipe")
+
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          print(f"php={php}", file=out)
+          print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          EOF
+
+      - name: Write auth.json
+        env:
+          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+        run: |
+          if [ -n "$COMPOSER_AUTH" ]; then echo "$COMPOSER_AUTH" > auth.json
+          else echo '{}' > auth.json; fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push php-fpm
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: php-fpm
+          push: true
+          build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
+          tags: ghcr.io/${{ github.repository }}:php-fpm-${{ steps.resolve.outputs.sha_tag }}
+          cache-from: type=gha,scope=php-fpm
+          cache-to: type=gha,scope=php-fpm,mode=max,ignore-error=true
+
+      - name: Build + push nginx
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: nginx
+          push: true
+          build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
+          tags: ghcr.io/${{ github.repository }}:nginx-${{ steps.resolve.outputs.sha_tag }}
+          cache-from: |
+            type=gha,scope=nginx
+            type=gha,scope=php-fpm
+          cache-to: type=gha,scope=nginx,mode=max,ignore-error=true

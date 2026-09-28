@@ -77,7 +77,6 @@ $config = [
             ],
         ],
     ],
-    'http_cache_hosts' => [['host' => $e('VARNISH_HOST', 'varnish-service'), 'port' => 80]],
     'queue' => [
         'amqp' => [
             'host' => $e('RABBITMQ_HOST', 'rabbitmq'),
@@ -100,6 +99,19 @@ $config = [
     ],
     'directories' => ['document_root_is_pub' => true],
 ];
+
+// The page cache in front of this environment (App.spec.front.pageCache).
+// Varnish on — the default — is where Magento sends its purges. Off, the
+// operator leaves VARNISH_HOST empty: there is no HTTP cache host to purge,
+// and Magento serves its built-in full page cache (caching_application 1),
+// pinned here so a database that says "Varnish" cannot leave the shop
+// without any page cache at all.
+$varnishHost = $e('VARNISH_HOST', 'varnish-service');
+if ($varnishHost !== '') {
+    $config['http_cache_hosts'] = [['host' => $varnishHost, 'port' => 80]];
+} else {
+    $config['system']['default']['system']['full_page_cache']['caching_application'] = '1';
+}
 
 // Pin the base URL from the environment rather than trusting core_config_data.
 //

@@ -136,3 +136,33 @@ manages environments as Kubernetes resources: branch = environment,
 previews with scale-to-zero, database migrations as a checkpointed state
 machine, and a live development mode per preview. This repository is the
 public edge of that platform.
+
+## Laravel
+
+A Laravel project on the platform builds with `laravel-build.yml`:
+
+```yaml
+# .github/workflows/build.yaml — builds every branch
+name: Build
+on: push
+concurrency:
+  group: build-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  build:
+    uses: ho-nl/deployyy/.github/workflows/laravel-build.yml@main
+    secrets: inherit
+```
+
+The PHP version comes from `require.php` in `composer.json` (8.2–8.4). The
+recipe (`recipes/laravel`) builds two images, `php-fpm-<sha>` and
+`nginx-<sha>`, including your Vite/Mix assets when there is a `package.json`.
+A `Dockerfile` in your repository replaces the recipe; a file in `.platform/`
+replaces the recipe's file of the same name.
+
+The platform configures the application through environment variables —
+`DB_*`, `REDIS_*`, `APP_URL`, `APP_KEY`, mail and S3 — so do not commit a
+`.env`. Your own variables are managed per environment and win over the
+platform's. Migrations run before a release serves (`php artisan migrate
+--force` unless the project declares its own release commands); a failed
+migration keeps the previous release online.

@@ -215,8 +215,10 @@ The workflow builds two images and pushes them to `ghcr.io/<your-repo>`:
 Requirements:
 
 - a `build` script in `package.json`, or `next` alone;
-- a route that answers `GET /api/health` with HTTP 200. The platform uses it
-  to check that a release is ready; the build warns when it is missing;
+- a route that answers `GET /api/health` with HTTP 200 (or another health
+  path set in your project's platform settings). The platform uses it to
+  check that a release is ready; the build warns when `/api/health` is
+  missing;
 - Node from `.nvmrc`, `.node-version` or `engines.node` (20, 22 or 24; the
   default is 22). The package manager follows your lockfile (npm, Yarn or
   pnpm).

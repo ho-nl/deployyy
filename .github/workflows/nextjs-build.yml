@@ -3,7 +3,7 @@
 # A project repo calls this with a few lines (see README); everything else is
 # derived:
 #   - NODE from .nvmrc / .node-version, else package.json `engines.node`
-#     (the highest of 24, 22, 20 the constraint names), else 22.
+#     (the highest of 24, 22, 20 the range allows), else 22.
 #   - The DOCKERFILE is recipes/nextjs — unless the repo ships its own (a
 #     repo-local Dockerfile wins wholesale). .platform/* support files are
 #     overlaid per file (a repo-local copy of one file keeps the others).
@@ -79,11 +79,26 @@ jobs:
                   elif m:
                       print(f"::warning::{f} asks for Node {m.group(1)}; supported: {supported}")
                   break
+          def allows(rng, major):
+              # A semver range on the MAJOR only: `||` alternatives of
+              # space-separated comparators (>=, >, <=, <, =, ^, ~, x-ranges).
+              for alt in rng.split("||"):
+                  ok = True
+                  for c in re.findall(r"(>=|<=|>|<|=|\\^|~)?\s*v?(\d+)(?:\.[\dxX*]+)*", alt):
+                      op, n = c[0], int(c[1])
+                      ok &= {">=": major >= n, ">": major > n, "<=": major <= n,
+                             "<": major < n}.get(op, major == n)
+                  if ok and alt.strip():
+                      return True
+              return False
           if node is None:
               engines = pkg.get("engines", {}).get("node", "")
-              named = set(re.findall(r"(?<![\d.])(\d{2})(?=\D|$)", engines))
-              node = next((v for v in supported if v in named), None)
-              source = f"engines.node {engines!r}" if node else None
+              if engines.strip():
+                  node = next((v for v in supported if allows(engines, int(v))), None)
+                  if node:
+                      source = f"engines.node {engines!r}"
+                  else:
+                      print(f"::warning::engines.node {engines!r} allows none of {supported}; building with Node 22")
           node = node or "22"
           print(f"Node {node} ({source or 'default'})")
 

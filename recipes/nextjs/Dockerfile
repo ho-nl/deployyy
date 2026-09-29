@@ -55,13 +55,15 @@ RUN --mount=type=secret,id=build-env,required=false \
       echo "FATAL: .next/standalone/server.js is missing. The platform runs the Next.js standalone server;"; \
       echo "a monorepo with outputFileTracingRoot puts it elsewhere: ship a repo-local Dockerfile for that layout."; \
       exit 1; }
-# Readiness is GET /api/health on :3000 (operator compose.go). An app
-# without that route builds, but its pods never become ready.
+# Readiness is GET /api/health by default (operator compose.go; the path and
+# port are project settings there). An app without the route it is probed on
+# builds, but its pods never become ready.
 RUN if [ -e .next/server/pages/api/health.js ] || [ -e .next/server/app/api/health/route.js ]; then \
       echo "health route: /api/health present"; \
     else \
-      echo "WARNING: no /api/health route found. The platform's readiness probe is GET /api/health on :3000;"; \
-      echo "WARNING: add pages/api/health.(js|ts) or app/api/health/route.(js|ts) that answers 200."; \
+      echo "WARNING: no /api/health route found. The platform's default readiness probe is GET /api/health;"; \
+      echo "WARNING: add pages/api/health.(js|ts) or app/api/health/route.(js|ts) that answers 200,"; \
+      echo "WARNING: or set another health path in the project's platform settings."; \
     fi
 # The prerendered routes, in the cache handler's format, for the seed image.
 RUN node .platform/seed-cache.mjs && mkdir -p public

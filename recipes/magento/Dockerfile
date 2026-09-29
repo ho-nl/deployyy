@@ -137,7 +137,14 @@ COPY --chown=docker:docker <<'EOF' /tmp/platform-modules/QueuePoisonPillPk/etc/d
     }
 }
 EOF
+# Opt-in (PLATFORM_QUEUE_POISON_PILL_PK=1): it changes the schema of the live
+# database on the next setup:upgrade, so a project turns it on deliberately. Needed
+# only on Group Replication (Percona); MariaDB and single-node MySQL accept the table.
+ARG PLATFORM_QUEUE_POISON_PILL_PK=0
 RUN set -eu; \
+    if [ "$PLATFORM_QUEUE_POISON_PILL_PK" != "1" ]; then \
+      echo "queue_poison_pill: off (build-arg PLATFORM_QUEUE_POISON_PILL_PK=1 turns it on)"; \
+      rm -rf /tmp/platform-modules; exit 0; fi; \
     found=$(find vendor app/code -name db_schema.xml -print0 2>/dev/null \
       | xargs -0 -r php -r 'foreach (array_slice($argv, 1) as $f) { $x = @simplexml_load_file($f); if ($x && $x->xpath("//table[@name=\"queue_poison_pill\"]/constraint[@*[local-name()=\"type\"]=\"primary\"]")) echo "$f\n"; }'); \
     if [ -n "$found" ]; then \

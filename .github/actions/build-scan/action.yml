@@ -63,9 +63,12 @@ inputs:
   enforce:
     description: '"true" fails the build on a fixable CRITICAL finding; anything else only reports it'
     default: "false"
-  trivy-version:
-    description: aquasec/trivy image version
-    default: "0.74.0"
+  trivy-image:
+    description: >-
+      Scanner image, pinned by digest (ghcr.io/aquasecurity/trivy 0.74.0). The
+      job's registry credentials are mounted into it, so a movable tag is not
+      acceptable here.
+    default: "ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
 
 outputs:
   ref:
@@ -112,7 +115,7 @@ runs:
         REF: ${{ steps.ref.outputs.ref }}
         LABEL: ${{ inputs.label }}
         ENFORCE: ${{ inputs.enforce }}
-        TRIVY_VERSION: ${{ inputs.trivy-version }}
+        TRIVY_IMAGE: ${{ inputs.trivy-image }}
       run: |
         set -euo pipefail
         out="$RUNNER_TEMP/trivy-$LABEL"
@@ -125,12 +128,22 @@ runs:
         fi
         # The registry login of this job (docker/login-action) lets trivy
         # pull the private image.
-        docker run --rm \
+        # A scanner failure (registry rate limit, vulnerability DB download,
+        # timeout) must not stop a build that only reports: no tag would be
+        # pushed and no environment would roll. Enforced projects still fail.
+        if ! docker run --rm \
           -v "${DOCKER_CONFIG:-$HOME/.docker}/config.json:/root/.docker/config.json:ro" \
           -v "$out:/out" -v trivy-cache:/root/.cache/trivy \
-          "aquasec/trivy:$TRIVY_VERSION" image --quiet --scanners vuln \
+          "$TRIVY_IMAGE" image --quiet --scanners vuln \
           --platform linux/amd64 "${ignore[@]}" \
-          --format json --output /out/report.json "$REF"
+          --format json --output /out/report.json "$REF"; then
+          if [ "$ENFORCE" = "true" ]; then
+            echo "::error::$LABEL: the image scan could not run, and this project enforces it"
+            exit 1
+          fi
+          echo "::warning::$LABEL: the image scan could not run; the build continues (report-only)"
+          exit 0
+        fi
         python3 - "$out/report.json" "$LABEL" <<'EOF'
         import json, os, sys
         report, label = sys.argv[1], sys.argv[2]

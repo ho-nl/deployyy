@@ -110,10 +110,11 @@ jobs:
               print("platform Dockerfile overlaid from recipes/nextjs")
           platform = pathlib.Path(".platform")
           platform.mkdir(exist_ok=True)
-          support = sorted((recipe / "platform").iterdir()) + [
-              pathlib.Path(".platform-recipes/graphcommerce/cache-handler.mjs"),
-              pathlib.Path(".platform-recipes/graphcommerce/seed-cache.mjs"),
-          ]
+          # The cache handler and seed live in recipes/nextjs/platform. The copies
+          # under graphcommerce/ stay frozen: live GraphCommerce projects fetch
+          # them from main in their own CI, so changing them would change a
+          # production build that never opted in.
+          support = sorted((recipe / "platform").iterdir())
           for f in support:
               dest = platform / f.name
               if dest.exists():

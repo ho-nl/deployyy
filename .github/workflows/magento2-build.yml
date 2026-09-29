@@ -119,15 +119,26 @@ jobs:
                   shutil.copy(recipe / "Dockerfile", "Dockerfile")
                   print(f"platform Dockerfile overlaid from recipe {recipe_id}")
 
-              # Support files: per-file overlay (repo-local file wins).
-              pathlib.Path(".platform").mkdir(exist_ok=True)
-              for f in sorted((recipe / "platform").iterdir()):
-                  dest = pathlib.Path(".platform") / f.name
-                  if dest.exists():
-                      print(f".platform/{f.name}: repo-local, kept")
-                  else:
-                      shutil.copy(f, dest)
-                      print(f".platform/{f.name}: overlaid from recipe")
+              # Support files: per-file overlay (repo-local file wins). A repo
+              # that builds with its own Dockerfile on the Magento Open Source
+              # recipe gets none: before that recipe existed those repos (the
+              # demo ladder) built exactly as committed, and a new file in
+              # .platform/ would change their image without anyone asking.
+              if local_dockerfile and recipe_id == "magento":
+                  print("repo-local Dockerfile on the magento recipe -> support files NOT overlaid")
+              else:
+                  pathlib.Path(".platform").mkdir(exist_ok=True)
+                  for f in sorted((recipe / "platform").iterdir()):
+                      dest = pathlib.Path(".platform") / f.name
+                      if dest.exists():
+                          print(f".platform/{f.name}: repo-local, kept")
+                      else:
+                          shutil.copy(f, dest)
+                          print(f".platform/{f.name}: overlaid from recipe")
+          # PHP comes from the line only when the platform Dockerfile builds: a
+          # repo-local Dockerfile keeps its own PHP_VERSION default.
+          if local_dockerfile:
+              php = ""
 
           # Locales for the DB-less static-content:deploy. The platform is
           # the source of truth: the operator mirrors the app's configured
@@ -147,7 +158,9 @@ jobs:
           print(f"line={line} recipe={recipe_id} php={php} locales={locales} graphql_post_cache={post_cache}")
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"line={line}", file=out)
-          print(f"php={php}", file=out)
+          # A whole build-arg line, empty when the repo builds its own Dockerfile
+          # (an empty line is skipped; `PHP_VERSION=` would blank its default).
+          print(f"php_arg={'PHP_VERSION=' + php if php else ''}", file=out)
           print(f"locales={locales}", file=out)
           print(f"post_cache={post_cache}", file=out)
           print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
@@ -191,7 +204,7 @@ jobs:
           label: php-fpm
           enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
-            PHP_VERSION=${{ steps.resolve.outputs.php }}
+            ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
             PLATFORM_GRAPHQL_POST_CACHE=${{ steps.resolve.outputs.post_cache }}
           # Do not let the later nginx export replace the PHP runtime layers.
@@ -210,7 +223,7 @@ jobs:
           label: nginx
           enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
-            PHP_VERSION=${{ steps.resolve.outputs.php }}
+            ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
             PLATFORM_GRAPHQL_POST_CACHE=${{ steps.resolve.outputs.post_cache }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}

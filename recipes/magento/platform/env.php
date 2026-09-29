@@ -130,11 +130,14 @@ $consumersRunner = $e('MAGENTO_CONSUMERS_RUNNER');
 if ($consumersRunner === 'cron' || $consumersRunner === 'off') {
     $config['cron_consumers_runner'] = [
         'cron_run' => $consumersRunner === 'cron',
-        'max_messages' => (int) $e('MAGENTO_CONSUMERS_MAX_MESSAGES', '1000'),
+        // An empty value counts as unset: (int) '' is 0, which Magento reads as
+        // "no limit".
+        'max_messages' => (int) (($e('MAGENTO_CONSUMERS_MAX_MESSAGES') ?? '') !== ''
+            ? $e('MAGENTO_CONSUMERS_MAX_MESSAGES') : '1000'),
         'consumers' => [],
     ];
 }
-if ($e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES') !== null) {
+if (($e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES') ?? '') !== '') {
     $config['queue']['consumers_wait_for_messages'] = (int) $e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES');
 }
 

@@ -240,7 +240,7 @@ Other variables and secrets are not. Runtime settings come from the platform.
 Your project carries no cache code and no cache configuration. The build
 wraps your `next.config` (`.js`, `.mjs`, `.ts` or `.mts`) and adds:
 
-- `cacheHandler`: [`graphcommerce/cache-handler.mjs`](graphcommerce/cache-handler.mjs),
+- `cacheHandler`: [`recipes/nextjs/platform/cache-handler.mjs`](recipes/nextjs/platform/cache-handler.mjs),
   which keeps ISR pages and fetch results in the shared cache volume that the
   platform mounts (`CACHE_DIR`). One revalidation updates every instance.
   Without `CACHE_DIR` (local development) the cache is private to the

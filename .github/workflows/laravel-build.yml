@@ -48,7 +48,7 @@ jobs:
         id: resolve
         run: |
           python3 - <<'EOF'
-          import json, os, pathlib, re, shutil
+          import datetime, json, os, pathlib, re, shutil
 
           req = json.load(open("composer.json")).get("require", {})
           constraint = req.get("php", "")
@@ -80,6 +80,7 @@ jobs:
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"php={php}", file=out)
           print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 
       - name: Write auth.json
@@ -115,7 +116,9 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: nginx
           label: nginx
-          build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
+          build-args: |
+            PHP_VERSION=${{ steps.resolve.outputs.php }}
+            PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}
           cache-from: |
             type=gha,scope=nginx
             type=gha,scope=php-fpm

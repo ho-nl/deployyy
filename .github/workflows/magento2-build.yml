@@ -71,7 +71,7 @@ jobs:
           DEPLOYYY_GRAPHQL_POST_CACHE: ${{ vars.DEPLOYYY_GRAPHQL_POST_CACHE }}
         run: |
           python3 - <<'EOF'
-          import json, os, pathlib, shutil, sys
+          import datetime, json, os, pathlib, shutil, sys
 
           # D2: the line is DERIVED from composer.json, never declared.
           # (deployyy.json's receiver-era `base` field is ignored on purpose.)
@@ -151,6 +151,7 @@ jobs:
           print(f"locales={locales}", file=out)
           print(f"post_cache={post_cache}", file=out)
           print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 
       - name: Write auth.json
@@ -210,6 +211,7 @@ jobs:
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
             PLATFORM_GRAPHQL_POST_CACHE=${{ steps.resolve.outputs.post_cache }}
+            PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}
           cache-from: |
             type=gha,scope=nginx
             type=gha,scope=php-fpm

@@ -161,7 +161,14 @@ its own Dockerfile.
 Every build pushes its images **by digest** first and scans each one with
 [trivy](https://trivy.dev):
 
-- A **critical** vulnerability that has a fixed version **fails the build**.
+- A **critical** vulnerability that has a fixed version is flagged. It
+  **fails the build** once your repository sets the Actions variable
+  `DEPLOYYY_SCAN_ENFORCE` to `1`; until then it is a warning and the build
+  goes on. Enforcement is opt-in per project for now: when the gate was
+  added, most running images had such a finding (npm's bundled `tar` in the
+  PHP base image, OpenSSL in nginx alpine, older `next`), and an enforcing
+  gate would have stopped their next deploy. Make your report clean, then
+  switch it on.
 - Every other finding is **reported**: the job summary shows the counts and
   the critical and high findings, and the full report is a run artifact
   (`trivy-<image>`).
@@ -169,7 +176,8 @@ Every build pushes its images **by digest** first and scans each one with
   your repository, with a comment that gives the reason.
 
 The build tags the images (the tags the platform deploys) only when every
-image of the build passed. Each image carries an SBOM and a provenance
+image of the build passed (with enforcement on; a reported finding does not
+hold the tags back). Each image carries an SBOM and a provenance
 attestation. To read them:
 
 ```sh

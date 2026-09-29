@@ -20,8 +20,9 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 - **GraphQL POST requests are cached.** Magento builds include
   `GraphCommerce_GraphQlVarnishPostCache`. Set the repository variable
   `DEPLOYYY_GRAPHQL_POST_CACHE` to `0` to leave it out.
-- **Every image is scanned.** A critical vulnerability that has a fix stops
-  the release; the build reports all other findings. Each image carries an
+- **Every image is scanned.** A critical vulnerability that has a fix is
+  reported as a warning, and stops the release once the project sets
+  `DEPLOYYY_SCAN_ENFORCE=1`; the build reports all other findings. Each image carries an
   SBOM and a provenance attestation.
 - **Unprivileged images.** The new Magento and Next.js images run without
   root and without `sudo`.

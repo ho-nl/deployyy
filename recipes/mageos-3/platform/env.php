@@ -113,6 +113,31 @@ if ($varnishHost !== '') {
     $config['system']['default']['system']['full_page_cache']['caching_application'] = '1';
 }
 
+// Queue consumers (deployyy-operator docs/MAGENTO-PROCESSES.md). The operator sets
+// these only when the project DECLARES its consumers (Magento2App.spec.magento.consumers);
+// unset, nothing is written and Magento's defaults apply, exactly as before.
+//
+//   MAGENTO_CONSUMERS_RUNNER=cron  every consumer is started by Magento's own
+//                                  `consumers_runner` cron job (mode `all`);
+//   MAGENTO_CONSUMERS_RUNNER=off   cron starts none — the consumer process runs
+//                                  exactly the declared list (mode `listed`);
+//   MAGENTO_CONSUMERS_MAX_MESSAGES the runner's max_messages;
+//   MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES=0  an idle consumer exits instead of
+//                                  blocking, so the operator's shared loop moves on
+//                                  to the next consumer (and cron-started ones do
+//                                  not idle in the cron process's memory).
+$consumersRunner = $e('MAGENTO_CONSUMERS_RUNNER');
+if ($consumersRunner === 'cron' || $consumersRunner === 'off') {
+    $config['cron_consumers_runner'] = [
+        'cron_run' => $consumersRunner === 'cron',
+        'max_messages' => (int) $e('MAGENTO_CONSUMERS_MAX_MESSAGES', '1000'),
+        'consumers' => [],
+    ];
+}
+if ($e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES') !== null) {
+    $config['queue']['consumers_wait_for_messages'] = (int) $e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES');
+}
+
 // Pin the base URL from the environment rather than trusting core_config_data.
 //
 // env.php's `system` section is the HIGHEST-precedence config source

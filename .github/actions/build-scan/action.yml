@@ -19,8 +19,17 @@
 # never in the provenance: BuildKit records build-args, not secret values.
 #
 # Scan policy (trivy, vulnerabilities in OS packages and language deps):
-#   - FAIL on a CRITICAL vulnerability that has a fixed version. An unfixed
-#     one cannot be acted on and would block every build of a base image.
+#   - FAIL on a CRITICAL vulnerability that has a fixed version — ONLY when
+#     the project enforces the gate (repository variable
+#     DEPLOYYY_SCAN_ENFORCE=1, passed in as `enforce`). Without it the same
+#     findings are REPORTED (job summary + ::warning) and the build goes on.
+#     Report-first because the recipes are consumed @main: on 2026-09-29, 5 of
+#     the 6 images running on the platform carried a fixable CRITICAL (npm's
+#     bundled `tar` in the fpm-node22 base, OpenSSL in nginx alpine, `next`),
+#     so an enforcing gate would have stopped their next deploy. Enforce per
+#     project once its report is clean; make it the default when all are.
+#     An unfixed CRITICAL never fails: it cannot be acted on and would block
+#     every build of a base image.
 #   - REPORT everything else: severity counts plus the CRITICAL/HIGH rows in
 #     the job summary, and the full JSON report as a run artifact.
 #   - A project can accept a finding with a `.trivyignore` file (one CVE id
@@ -51,6 +60,9 @@ inputs:
   cache-to:
     description: docker/build-push-action cache-to
     default: ""
+  enforce:
+    description: '"true" fails the build on a fixable CRITICAL finding; anything else only reports it'
+    default: "false"
   trivy-version:
     description: aquasec/trivy image version
     default: "0.74.0"
@@ -99,6 +111,7 @@ runs:
       env:
         REF: ${{ steps.ref.outputs.ref }}
         LABEL: ${{ inputs.label }}
+        ENFORCE: ${{ inputs.enforce }}
         TRIVY_VERSION: ${{ inputs.trivy-version }}
       run: |
         set -euo pipefail
@@ -140,15 +153,22 @@ runs:
             if len(rows) > 100:
                 lines.append(f"\n{len(rows) - 100} more rows in the `trivy-{label}` artifact.")
         lines.append("")
-        lines.append(f"**FAILED**: {len(blocking)} fixable CRITICAL finding(s)." if blocking
-                     else "Passed: no fixable CRITICAL finding.")
+        enforce = os.environ.get("ENFORCE", "").strip().lower() == "true"
+        if not blocking:
+            lines.append("Passed: no fixable CRITICAL finding.")
+        elif enforce:
+            lines.append(f"**FAILED**: {len(blocking)} fixable CRITICAL finding(s).")
+        else:
+            lines.append(f"**Would fail** once enforced: {len(blocking)} fixable CRITICAL finding(s). "
+                         "Reported only; set the repository variable DEPLOYYY_SCAN_ENFORCE=1 to enforce.")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
             f.write("\n".join(lines) + "\n")
         print("\n".join(lines))
+        level = "error" if enforce else "warning"
         for v in blocking:
-            print(f"::error title=Critical vulnerability in {label}::{v.get('VulnerabilityID')} "
+            print(f"::{level} title=Critical vulnerability in {label}::{v.get('VulnerabilityID')} "
                   f"{v.get('PkgName')} {v.get('InstalledVersion')} (fixed in {v.get('FixedVersion')}) in {v['Target']}")
-        sys.exit(1 if blocking else 0)
+        sys.exit(1 if blocking and enforce else 0)
         EOF
 
     - name: Upload scan report

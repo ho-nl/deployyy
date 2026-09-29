@@ -169,6 +169,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: cache-seed
           label: cache-seed
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             NODE_VERSION=${{ steps.resolve.outputs.node }}
             DEPLOYYY_BUILD_ID=${{ github.sha }}
@@ -183,6 +184,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: runtime
           label: runtime
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             NODE_VERSION=${{ steps.resolve.outputs.node }}
             DEPLOYYY_BUILD_ID=${{ github.sha }}

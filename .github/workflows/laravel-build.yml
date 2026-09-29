@@ -9,7 +9,8 @@
 #     overlaid per file (a repo-local copy of one file keeps the others).
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>,
 #     the commit-keyed tags the operator verifies before a release. Both are
-#     pushed by digest, scanned (trivy: a fixable CRITICAL fails the build)
+#     pushed by digest, scanned (trivy: a fixable CRITICAL fails the build
+#     when the caller sets DEPLOYYY_SCAN_ENFORCE=1, else it is reported)
 #     and tagged only when both passed, with SBOM + provenance attestations
 #     (.github/actions/build-scan).
 #
@@ -105,6 +106,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: php-fpm
           label: php-fpm
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
           cache-from: type=gha,scope=php-fpm
           cache-to: type=gha,scope=php-fpm,mode=max,ignore-error=true
@@ -116,6 +118,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: nginx
           label: nginx
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}

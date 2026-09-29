@@ -21,7 +21,7 @@
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>
 #     — the exact commit-keyed tags the operator verifies before deploying.
 #     Both are pushed by digest first, scanned (trivy: a fixable CRITICAL
-#     fails the build), and tagged only when both passed; each carries an
+#     fails the build when the caller sets DEPLOYYY_SCAN_ENFORCE=1), and tagged only when both passed; each carries an
 #     SBOM and provenance attestation (.github/actions/build-scan).
 #   - PHP comes from the line (2.4.6 -> 8.2, 2.4.7 -> 8.3, 2.4.8/2.4.9 and
 #     Mage-OS 3 -> 8.4), not from the project.
@@ -189,6 +189,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: php-fpm
           label: php-fpm
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
@@ -207,6 +208,7 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: nginx
           label: nginx
+          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}

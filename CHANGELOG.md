@@ -6,6 +6,27 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ## 2026-09-29
 
+### Builds
+
+- **Next.js and GraphCommerce builds.** New reusable workflows
+  `nextjs-build.yml` and `graphcommerce-build.yml`. The build wires the
+  platform's shared page cache into your Next.js config, so your project
+  carries no cache code. A second image holds the pages the build
+  prerendered; the platform loads them into the cache, so a release starts
+  warm.
+- **Magento Open Source 2.4.6, 2.4.7, 2.4.8 and 2.4.9** build with a
+  platform recipe (PHP 8.2, 8.3, 8.4 and 8.4). Your repository no longer
+  needs its own Dockerfile for these releases.
+- **GraphQL POST requests are cached.** Magento builds include
+  `GraphCommerce_GraphQlVarnishPostCache`. Set the repository variable
+  `DEPLOYYY_GRAPHQL_POST_CACHE` to `0` to leave it out.
+- **Every image is scanned.** A critical vulnerability that has a fix is
+  reported as a warning, and stops the release once the project sets
+  `DEPLOYYY_SCAN_ENFORCE=1`; the build reports all other findings. Each image carries an
+  SBOM and a provenance attestation.
+- **Unprivileged images.** The new Magento and Next.js images run without
+  root and without `sudo`.
+
 ### Agent workspaces
 
 A workspace is a development sandbox for one of your projects, connected to a
@@ -139,6 +160,25 @@ only to its own work branch.
 
 ## Build recipes (this repository)
 
+- `recipes/nextjs` + `nextjs-build.yml` / `graphcommerce-build.yml`: Next.js
+  standalone image (`sha-<sha7>`, uid 1001) and a cache-seed image
+  (`sha-<sha7>-cache-seed`). The Next config is wrapped at build time with
+  `cacheHandler`, `cacheMaxMemorySize: 0`, `output: 'standalone'` and the
+  commit as build ID. The seed covers App Router and Pages Router prerenders
+  on Next 14, 15 and 16.
+- `graphcommerce/cache-handler.mjs`: no longer makes Turbopack (Next 16)
+  trace the whole project into the standalone output.
+- `recipes/magento`: Magento Open Source 2.4.6–2.4.9 (lines `magento-246` …
+  `magento-249`). Cache types from the installed modules, a primary key for
+  `queue_poison_pill` when the tree has none, `patches/` before
+  `composer install`, runtime minification pinned to what the build
+  deployed, the GraphQL POST cache module, php.ini `production`.
+- `recipes/magento` images run as uid 1000 (php-fpm, no `sudo`) and on
+  `nginx-unprivileged`; see `docs/PSS-RESTRICTED.md`.
+- All reusable build workflows push by digest, scan with trivy, and tag only
+  after every image passed; SBOM + provenance (`mode=max`) on every image.
+- `lint.yml`: actionlint, shellcheck, syntax checks and a drift check for the
+  support files that `recipes/magento` shares with `recipes/mageos-3`.
 - `recipes/laravel`: new Laravel build recipe and reusable workflow.
 - `mageos-3`: an empty `VARNISH_HOST` now means Magento's own page cache.
 - The recipe copies your project's `patches/` before `composer install`, so

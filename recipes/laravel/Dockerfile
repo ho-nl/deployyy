@@ -53,5 +53,11 @@ RUN mkdir -p storage/framework/cache storage/framework/sessions \
              storage/framework/views storage/logs bootstrap/cache
 
 FROM nginx:1.26-alpine AS nginx
+# OS security fixes the base image does not have yet: the build's image scan
+# fails on a fixable CRITICAL finding (.github/actions/build-scan).
+# PLATFORM_OS_UPDATES_DAY (the build date) re-runs this once a day even when
+# the layer is cached. nginx itself comes from nginx.org and is not upgraded.
+ARG PLATFORM_OS_UPDATES_DAY=""
+RUN apk upgrade --no-cache
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /tmp/app/public /var/www/html/public

@@ -1,0 +1,41 @@
+# Checks for this repository itself (the recipes and reusable workflows).
+# The reusable workflows run in project repositories; this one does not.
+
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint (workflows, with shellcheck on run blocks)
+        run: |
+          curl -fsSL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color
+
+      - name: shellcheck (recipe scripts)
+        run: shellcheck recipes/*/platform/*.sh recipes/*/platform/sendmail-tagged
+
+      - name: PHP and JavaScript syntax
+        run: |
+          for f in recipes/*/platform/env.php; do php -l "$f"; done
+          for f in graphcommerce/*.mjs recipes/*/platform/*.mjs; do node --check "$f"; done
+
+      # recipes/magento started from recipes/mageos-3. These support files must
+      # stay the same in both; a fix to one belongs in the other.
+      - name: Shared Magento support files have not drifted
+        run: |
+          for f in nginx-default.conf sendmail-tagged; do
+            diff -u "recipes/mageos-3/platform/$f" "recipes/magento/platform/$f"
+          done

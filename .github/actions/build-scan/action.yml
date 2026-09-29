@@ -1,0 +1,193 @@
+# Build one image target, push it BY DIGEST only, and scan it.
+#
+# Shared by the reusable build workflows (magento2-build, laravel-build,
+# nextjs-build). The workflows fetch this repo into .platform-recipes and use
+# the action from there, so it always matches the recipes of the same build.
+#
+# Why by digest: the operator deploys a commit as soon as its tag exists on
+# GHCR (deployyy-operator repository_controller.go, verifiedImage). A tag is
+# therefore a release decision. This action pushes the image with NO tag; the
+# workflow tags the digest (`docker buildx imagetools create`) only after
+# every image of the build passed its scan. A failed scan leaves an untagged
+# image that nothing deploys.
+#
+# Attestations: every image carries an SBOM (SPDX, BuildKit's syft scanner)
+# and SLSA provenance (mode=max) as OCI attestation manifests next to the
+# image. `docker buildx imagetools inspect <ref> --format '{{json .SBOM}}'`
+# and `'{{json .Provenance}}'` read them back. Build secrets (auth.json is
+# deleted in the recipe; the Next.js build env is a BuildKit secret) are
+# never in the provenance: BuildKit records build-args, not secret values.
+#
+# Scan policy (trivy, vulnerabilities in OS packages and language deps):
+#   - FAIL on a CRITICAL vulnerability that has a fixed version — ONLY when
+#     the project enforces the gate (repository variable
+#     DEPLOYYY_SCAN_ENFORCE=1, passed in as `enforce`). Without it the same
+#     findings are REPORTED (job summary + ::warning) and the build goes on.
+#     Report-first because the recipes are consumed @main: on 2026-09-29, 5 of
+#     the 6 images running on the platform carried a fixable CRITICAL (npm's
+#     bundled `tar` in the fpm-node22 base, OpenSSL in nginx alpine, `next`),
+#     so an enforcing gate would have stopped their next deploy. Enforce per
+#     project once its report is clean; make it the default when all are.
+#     An unfixed CRITICAL never fails: it cannot be acted on and would block
+#     every build of a base image.
+#   - REPORT everything else: severity counts plus the CRITICAL/HIGH rows in
+#     the job summary, and the full JSON report as a run artifact.
+#   - A project can accept a finding with a `.trivyignore` file (one CVE id
+#     per line, a comment with the reason) at the repository root.
+
+name: build-scan
+description: Build an image target, push it by digest, scan it with trivy, attach SBOM + provenance
+
+inputs:
+  image:
+    description: Image name without tag, e.g. ghcr.io/owner/repo (lowercased here)
+    required: true
+  target:
+    description: Dockerfile target
+    required: true
+  label:
+    description: Short name for the report (job summary heading, artifact name)
+    required: true
+  build-args:
+    description: Build-args, one KEY=value per line
+    default: ""
+  secret-files:
+    description: BuildKit secret files, one id=path per line
+    default: ""
+  cache-from:
+    description: docker/build-push-action cache-from
+    default: ""
+  cache-to:
+    description: docker/build-push-action cache-to
+    default: ""
+  enforce:
+    description: '"true" fails the build on a fixable CRITICAL finding; anything else only reports it'
+    default: "false"
+  trivy-image:
+    description: >-
+      Scanner image, pinned by digest (ghcr.io/aquasecurity/trivy 0.74.0). The
+      job's registry credentials are mounted into it, so a movable tag is not
+      acceptable here.
+    default: "ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
+
+outputs:
+  ref:
+    description: The pushed image as <image>@<digest>
+    value: ${{ steps.ref.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - name: Normalize image name
+      id: name
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+
+    - name: Build + push ${{ inputs.label }} (by digest)
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        target: ${{ inputs.target }}
+        build-args: ${{ inputs.build-args }}
+        secret-files: ${{ inputs.secret-files }}
+        outputs: type=image,name=${{ steps.name.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+        provenance: mode=max
+        sbom: true
+        cache-from: ${{ inputs.cache-from }}
+        cache-to: ${{ inputs.cache-to }}
+
+    - name: Image reference
+      id: ref
+      shell: bash
+      env:
+        IMAGE: ${{ steps.name.outputs.image }}
+        DIGEST: ${{ steps.build.outputs.digest }}
+      run: |
+        test -n "$DIGEST" || { echo "FATAL: the build returned no digest"; exit 1; }
+        echo "ref=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
+
+    - name: Scan ${{ inputs.label }} (trivy)
+      shell: bash
+      env:
+        REF: ${{ steps.ref.outputs.ref }}
+        LABEL: ${{ inputs.label }}
+        ENFORCE: ${{ inputs.enforce }}
+        TRIVY_IMAGE: ${{ inputs.trivy-image }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/trivy-$LABEL"
+        mkdir -p "$out"
+        ignore=()
+        if [ -f .trivyignore ]; then
+          cp .trivyignore "$out/.trivyignore"
+          ignore=(--ignorefile /out/.trivyignore)
+          echo "project .trivyignore: $(grep -cvE '^\s*(#|$)' .trivyignore || true) accepted finding(s)"
+        fi
+        # The registry login of this job (docker/login-action) lets trivy
+        # pull the private image.
+        # A scanner failure (registry rate limit, vulnerability DB download,
+        # timeout) must not stop a build that only reports: no tag would be
+        # pushed and no environment would roll. Enforced projects still fail.
+        if ! docker run --rm \
+          -v "${DOCKER_CONFIG:-$HOME/.docker}/config.json:/root/.docker/config.json:ro" \
+          -v "$out:/out" -v trivy-cache:/root/.cache/trivy \
+          "$TRIVY_IMAGE" image --quiet --scanners vuln \
+          --platform linux/amd64 "${ignore[@]}" \
+          --format json --output /out/report.json "$REF"; then
+          if [ "$ENFORCE" = "true" ]; then
+            echo "::error::$LABEL: the image scan could not run, and this project enforces it"
+            exit 1
+          fi
+          echo "::warning::$LABEL: the image scan could not run; the build continues (report-only)"
+          exit 0
+        fi
+        python3 - "$out/report.json" "$LABEL" <<'EOF'
+        import json, os, sys
+        report, label = sys.argv[1], sys.argv[2]
+        vulns = [v | {"Target": r.get("Target", "")}
+                 for r in json.load(open(report)).get("Results") or []
+                 for v in r.get("Vulnerabilities") or []]
+        order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+        counts = {s: sum(1 for v in vulns if v.get("Severity") == s) for s in order}
+        blocking = [v for v in vulns if v.get("Severity") == "CRITICAL" and v.get("FixedVersion")]
+        lines = [f"### Image scan: {label}", "",
+                 "| " + " | ".join(order) + " |", "|" + "---|" * len(order),
+                 "| " + " | ".join(str(counts[s]) for s in order) + " |", ""]
+        rows = sorted((v for v in vulns if v.get("Severity") in ("CRITICAL", "HIGH")),
+                      key=lambda v: (order.index(v["Severity"]), v.get("PkgName", "")))
+        if rows:
+            lines += ["| Severity | ID | Package | Installed | Fixed in | Target |", "|---|---|---|---|---|---|"]
+            for v in rows[:100]:
+                lines.append(f"| {v['Severity']} | {v.get('VulnerabilityID','')} | {v.get('PkgName','')} | "
+                             f"{v.get('InstalledVersion','')} | {v.get('FixedVersion','') or '(no fix)'} | {v['Target']} |")
+            if len(rows) > 100:
+                lines.append(f"\n{len(rows) - 100} more rows in the `trivy-{label}` artifact.")
+        lines.append("")
+        enforce = os.environ.get("ENFORCE", "").strip().lower() == "true"
+        if not blocking:
+            lines.append("Passed: no fixable CRITICAL finding.")
+        elif enforce:
+            lines.append(f"**FAILED**: {len(blocking)} fixable CRITICAL finding(s).")
+        else:
+            lines.append(f"**Would fail** once enforced: {len(blocking)} fixable CRITICAL finding(s). "
+                         "Reported only; set the repository variable DEPLOYYY_SCAN_ENFORCE=1 to enforce.")
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+            f.write("\n".join(lines) + "\n")
+        print("\n".join(lines))
+        level = "error" if enforce else "warning"
+        for v in blocking:
+            print(f"::{level} title=Critical vulnerability in {label}::{v.get('VulnerabilityID')} "
+                  f"{v.get('PkgName')} {v.get('InstalledVersion')} (fixed in {v.get('FixedVersion')}) in {v['Target']}")
+        sys.exit(1 if blocking and enforce else 0)
+        EOF
+
+    - name: Upload scan report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-${{ inputs.label }}
+        path: ${{ runner.temp }}/trivy-${{ inputs.label }}/report.json
+        if-no-files-found: ignore

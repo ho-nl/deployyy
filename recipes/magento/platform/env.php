@@ -206,30 +206,25 @@ if ($e('MAGENTO_ADMIN_BASE_URL')) {
 // In production mode Magento never regenerates static artefacts at runtime
 // (Framework\View\Design\FileResolution\Fallback\TemplateFile::getFile() returns the
 // minified *path* under MODE_PRODUCTION without minifying), so any runtime config that
-// disagrees with the build makes Magento ask for files the image does not contain.
-//
-// THE VALUES BELOW FOLLOW FROM THAT RULE FOR *THIS* SCAFFOLD, and only for it: this
-// image runs setup:static-content:deploy at BUILD time with NO database, so it uses the
-// config.xml defaults — i.e. minification OFF — and therefore bakes UNMINIFIED assets.
-// An imported database that switches minification ON then breaks the site:
+// disagrees with the build makes Magento ask for files the image does not contain:
 //   * dev/template/minify_html=1 -> templates resolve to var/view_preprocessed/... which
-//     was never generated (and is masked by the var/ emptyDir anyway) => HTTP 500 on
-//     every page;
-//   * dev/js|css/minify_files=1  -> asset URLs become *.min.js / *.min.css, which were
-//     never deployed => HTTP 404 on every stylesheet and script.
-// Legacy servers get away with minification because they run static-content:deploy on
-// the server, with the database attached, onto a persistent var/.
+//     is not in the image (var/ is an emptyDir) => HTTP 500 on every page;
+//   * dev/js|css/minify_files=1 on an unminified build -> *.min.js / *.min.css URLs that
+//     were never deployed => HTTP 404 on every stylesheet and script (and the inverse
+//     for a minified build).
+// An imported database routinely carries the legacy server's settings, so the image
+// decides. The Dockerfile records what static-content:deploy produced in
+// app/etc/static_build.php (derived from the files in pub/static, not from a setting);
+// this pins exactly that. env.php's `system` section outranks core_config_data.
 //
-// DO NOT COPY THESE VALUES BLINDLY INTO A DIFFERENT IMAGE MODEL. A vendor-freeze image
-// (pub/static copied verbatim from a legacy server whose DB had minification ON)
-// contains ONLY minified assets and needs js/css set to '1' — the INVERSE — while
-// minify_html stays '0' because var/view_preprocessed is still absent. Re-derive from
-// the tree that is actually in the image, e.g.:
-//   find pub/static/frontend -name '*.min.css' | wc -l   # 0 => js/css must be '0'
+// The fallback applies only outside the platform build: a DB-less deploy with no
+// config.php overrides bakes unminified assets.
+$staticBuildFile = __DIR__ . '/static_build.php';
+$staticBuild = is_file($staticBuildFile) ? include $staticBuildFile : ['js' => '0', 'css' => '0', 'html' => '0'];
 $config['system']['default']['dev'] = [
-    'template' => ['minify_html' => '0'],
-    'js' => ['minify_files' => '0'],
-    'css' => ['minify_files' => '0'],
+    'template' => ['minify_html' => $staticBuild['html']],
+    'js' => ['minify_files' => $staticBuild['js']],
+    'css' => ['minify_files' => $staticBuild['css']],
 ];
 
 // Media lives on S3 (pub/media -> s3://<bucket>/media/), matching the other Magento envs

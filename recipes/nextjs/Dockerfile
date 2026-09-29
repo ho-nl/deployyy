@@ -70,17 +70,23 @@ RUN node .platform/seed-cache.mjs && mkdir -p public
 # per-build Job, which runs `sh`, `tar`, `sed` and `head` as uid 1001.
 FROM busybox:1.37 AS cache-seed
 COPY --from=builder --chown=1001:1001 /app/cache-seed.tar.gz /seed/cache-seed.tar.gz
+LABEL app.deployyy.pod-security="restricted"
 USER 1001:1001
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /app
+# The server needs node only: npm, npx and corepack go (fewer packages to
+# patch, fewer findings in the image scan).
 RUN groupadd --system --gid 1001 nextjs \
-    && useradd --system --uid 1001 --gid nextjs --no-create-home --shell /usr/sbin/nologin nextjs
+    && useradd --system --uid 1001 --gid nextjs --no-create-home --shell /usr/sbin/nologin nextjs \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+              /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=builder --chown=1001:1001 /app/.next/standalone ./
 COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/public ./public
 # Numeric, so the kubelet can verify runAsNonRoot without a securityContext.
+LABEL app.deployyy.pod-security="restricted"
 USER 1001:1001
 EXPOSE 3000
 CMD ["node", "server.js"]

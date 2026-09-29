@@ -8,7 +8,10 @@
 #     (a repo-local Dockerfile wins wholesale). .platform/* support files are
 #     overlaid per file (a repo-local copy of one file keeps the others).
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>,
-#     the commit-keyed tags the operator verifies before a release.
+#     the commit-keyed tags the operator verifies before a release. Both are
+#     pushed by digest, scanned (trivy: a fixable CRITICAL fails the build)
+#     and tagged only when both passed, with SBOM + provenance attestations
+#     (.github/actions/build-scan).
 #
 # Secrets (`secrets: inherit`): COMPOSER_AUTH, optional — public packages
 # need none.
@@ -37,7 +40,9 @@ jobs:
         with:
           repository: ho-nl/deployyy
           path: .platform-recipes
-          sparse-checkout: recipes
+          sparse-checkout: |
+            recipes
+            .github/actions
 
       - name: Resolve PHP and build context
         id: resolve
@@ -92,26 +97,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push php-fpm
-        uses: docker/build-push-action@v6
+      - name: Build + scan php-fpm
+        id: php
+        uses: ./.platform-recipes/.github/actions/build-scan
         with:
-          context: .
+          image: ghcr.io/${{ github.repository }}
           target: php-fpm
-          push: true
+          label: php-fpm
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
-          tags: ghcr.io/${{ github.repository }}:php-fpm-${{ steps.resolve.outputs.sha_tag }}
           cache-from: type=gha,scope=php-fpm
           cache-to: type=gha,scope=php-fpm,mode=max,ignore-error=true
 
-      - name: Build + push nginx
-        uses: docker/build-push-action@v6
+      - name: Build + scan nginx
+        id: nginx
+        uses: ./.platform-recipes/.github/actions/build-scan
         with:
-          context: .
+          image: ghcr.io/${{ github.repository }}
           target: nginx
-          push: true
+          label: nginx
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
-          tags: ghcr.io/${{ github.repository }}:nginx-${{ steps.resolve.outputs.sha_tag }}
           cache-from: |
             type=gha,scope=nginx
             type=gha,scope=php-fpm
           cache-to: type=gha,scope=nginx,mode=max,ignore-error=true
+
+      - name: Tag the release
+        env:
+          REPO: ${{ github.repository }}
+          SHA_TAG: ${{ steps.resolve.outputs.sha_tag }}
+          PHP_REF: ${{ steps.php.outputs.ref }}
+          NGINX_REF: ${{ steps.nginx.outputs.ref }}
+        run: |
+          image="ghcr.io/${REPO,,}"
+          docker buildx imagetools create -t "$image:nginx-$SHA_TAG" "$NGINX_REF"
+          docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
+          echo "released $image:php-fpm-$SHA_TAG + nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"

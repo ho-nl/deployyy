@@ -1,0 +1,203 @@
+# Central Next.js / GraphCommerce build — reusable workflow.
+#
+# A project repo calls this with a few lines (see README); everything else is
+# derived:
+#   - NODE from .nvmrc / .node-version, else package.json `engines.node`
+#     (the highest of 24, 22, 20 the range allows), else 22.
+#   - The DOCKERFILE is recipes/nextjs — unless the repo ships its own (a
+#     repo-local Dockerfile wins wholesale). .platform/* support files are
+#     overlaid per file (a repo-local copy of one file keeps the others).
+#   - The ISR CACHE HANDLER is wired in at build time: the recipe wraps the
+#     project's next.config with `cacheHandler` (graphcommerce/
+#     cache-handler.mjs) and `cacheMaxMemorySize: 0`. Projects carry no cache
+#     code and no cache config.
+#   - BUILD ENV: repository variables named NEXT_PUBLIC_* or GC_*, and
+#     secrets named GC_* or NEXT_PUBLIC_*, reach `next build` as a BuildKit
+#     secret (never a build-arg, never in a layer or in the provenance).
+#
+# Images (ghcr.io/<caller repo>), tagged only after both passed the scan:
+#   - sha-<sha7>-cache-seed  the prerendered routes in the cache handler's
+#                            format; the operator's seed Job loads it into
+#                            the shared cache volume. Tagged FIRST, so it
+#                            exists when the operator sees the app tag.
+#   - sha-<sha7>             the Next.js standalone server, the tag the
+#                            operator probes (repository_controller.go
+#                            tagPrefixes: GraphCommerceApp {"sha-", ""}).
+#
+# Secrets (`secrets: inherit`): none required.
+
+name: nextjs-build
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        default: ubicloud-standard-8
+        description: Runner label
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch platform build recipes
+        uses: actions/checkout@v4
+        with:
+          repository: ho-nl/deployyy
+          path: .platform-recipes
+          sparse-checkout: |
+            recipes
+            graphcommerce
+            .github/actions
+
+      - name: Resolve Node and build context
+        id: resolve
+        run: |
+          python3 - <<'EOF'
+          import json, os, pathlib, re, shutil
+
+          pkg = json.load(open("package.json"))
+          deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+          if "next" not in deps:
+              raise SystemExit("FATAL: package.json does not depend on `next`; this workflow builds Next.js apps.")
+          graphcommerce = any(d.startswith("@graphcommerce/") for d in deps)
+          print(f"next {deps['next']}; GraphCommerce: {'yes' if graphcommerce else 'no'}")
+
+          supported = ["24", "22", "20"]
+          node, source = None, None
+          for f in (".nvmrc", ".node-version"):
+              p = pathlib.Path(f)
+              if p.exists():
+                  m = re.match(r"\s*v?(\d+)", p.read_text())
+                  if m and m.group(1) in supported:
+                      node, source = m.group(1), f
+                  elif m:
+                      print(f"::warning::{f} asks for Node {m.group(1)}; supported: {supported}")
+                  break
+          def allows(rng, major):
+              # A semver range on the MAJOR only: `||` alternatives of
+              # space-separated comparators (>=, >, <=, <, =, ^, ~, x-ranges).
+              for alt in rng.split("||"):
+                  ok = True
+                  for c in re.findall(r"(>=|<=|>|<|=|\\^|~)?\s*v?(\d+)(?:\.[\dxX*]+)*", alt):
+                      op, n = c[0], int(c[1])
+                      ok &= {">=": major >= n, ">": major > n, "<=": major <= n,
+                             "<": major < n}.get(op, major == n)
+                  if ok and alt.strip():
+                      return True
+              return False
+          if node is None:
+              engines = pkg.get("engines", {}).get("node", "")
+              if engines.strip():
+                  node = next((v for v in supported if allows(engines, int(v))), None)
+                  if node:
+                      source = f"engines.node {engines!r}"
+                  else:
+                      print(f"::warning::engines.node {engines!r} allows none of {supported}; building with Node 22")
+          node = node or "22"
+          print(f"Node {node} ({source or 'default'})")
+
+          recipe = pathlib.Path(".platform-recipes/recipes/nextjs")
+          if pathlib.Path("Dockerfile").exists():
+              print("repo-local Dockerfile present -> platform recipe NOT overlaid")
+          else:
+              shutil.copy(recipe / "Dockerfile", "Dockerfile")
+              print("platform Dockerfile overlaid from recipes/nextjs")
+          platform = pathlib.Path(".platform")
+          platform.mkdir(exist_ok=True)
+          support = sorted((recipe / "platform").iterdir()) + [
+              pathlib.Path(".platform-recipes/graphcommerce/cache-handler.mjs"),
+              pathlib.Path(".platform-recipes/graphcommerce/seed-cache.mjs"),
+          ]
+          for f in support:
+              dest = platform / f.name
+              if dest.exists():
+                  print(f".platform/{f.name}: repo-local, kept")
+              else:
+                  shutil.copy(f, dest)
+                  print(f".platform/{f.name}: overlaid from recipe")
+
+          sha7 = os.environ["GITHUB_SHA"][:7]
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          print(f"node={node}", file=out)
+          print(f"tag=sha-{sha7}", file=out)
+          EOF
+
+      - name: Write build env
+        id: env
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, shlex
+          vars_ = json.loads(os.environ.get("VARS_JSON") or "{}") or {}
+          secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}") or {}
+          env = {}
+          for k, v in vars_.items():
+              if k.startswith(("NEXT_PUBLIC_", "GC_")):
+                  env[k] = v
+          for k, v in secrets.items():
+              if k.startswith(("NEXT_PUBLIC_", "GC_")):
+                  env[k] = v
+          path = os.path.join(os.environ["RUNNER_TEMP"], "build-env")
+          with open(path, "w") as f:
+              for k in sorted(env):
+                  if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+                      f.write(f"{k}={shlex.quote(str(env[k]))}\n")
+          print(f"build env: {sorted(env) or 'none'}")
+          print(f"path={path}", file=open(os.environ["GITHUB_OUTPUT"], "a"))
+          EOF
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + scan cache seed
+        id: seed
+        uses: ./.platform-recipes/.github/actions/build-scan
+        with:
+          image: ghcr.io/${{ github.repository }}
+          target: cache-seed
+          label: cache-seed
+          build-args: |
+            NODE_VERSION=${{ steps.resolve.outputs.node }}
+            DEPLOYYY_BUILD_ID=${{ github.sha }}
+          secret-files: build-env=${{ steps.env.outputs.path }}
+          cache-from: type=gha,scope=nextjs
+          cache-to: type=gha,scope=nextjs,mode=max,ignore-error=true
+
+      - name: Build + scan runtime
+        id: runtime
+        uses: ./.platform-recipes/.github/actions/build-scan
+        with:
+          image: ghcr.io/${{ github.repository }}
+          target: runtime
+          label: runtime
+          build-args: |
+            NODE_VERSION=${{ steps.resolve.outputs.node }}
+            DEPLOYYY_BUILD_ID=${{ github.sha }}
+          secret-files: build-env=${{ steps.env.outputs.path }}
+          cache-from: type=gha,scope=nextjs
+          cache-to: type=gha,scope=nextjs,mode=max,ignore-error=true
+
+      - name: Tag the release (seed first, then the app)
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SEED: ${{ steps.seed.outputs.ref }}
+          RUNTIME: ${{ steps.runtime.outputs.ref }}
+        run: |
+          image="ghcr.io/${REPO,,}"
+          docker buildx imagetools create -t "$image:$TAG-cache-seed" "$SEED"
+          docker buildx imagetools create -t "$image:$TAG" "$RUNTIME"
+          echo "released $image:$TAG (+ $TAG-cache-seed)" | tee -a "$GITHUB_STEP_SUMMARY"

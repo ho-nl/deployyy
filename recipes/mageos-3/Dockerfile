@@ -156,6 +156,12 @@ USER docker
 
 # Stage 3: nginx (serves pub/, proxies PHP to FPM on :9000)
 FROM nginx:1.26-alpine AS nginx
+# OS security fixes the base image does not have yet: the build's image scan
+# fails on a fixable CRITICAL finding (.github/actions/build-scan).
+# PLATFORM_OS_UPDATES_DAY (the build date) re-runs this once a day even when
+# the layer is cached. nginx itself comes from nginx.org and is not upgraded.
+ARG PLATFORM_OS_UPDATES_DAY=""
+RUN apk upgrade --no-cache
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
 # Empty Host->store map so the `include` in default.conf resolves and nginx
 # starts even when nothing is mounted (single-domain env / standalone image).

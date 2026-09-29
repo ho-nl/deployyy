@@ -1,0 +1,16 @@
+#!/bin/sh
+# sendmail_path shim: relay PHP mail to Mailpit over SMTP (target: MP_SENDMAIL_SMTP_ADDR).
+#
+# When MAIL_TAG is set (ephemeral/preview envs — the platform overlay sets it to the env's
+# namespace), an `X-Tags` header is prepended so the customer family's SHARED Mailpit tags
+# every message with the env it came from (filter with tag:<namespace> in the UI). Mailpit tags
+# on X-Tags by default; header order is free per RFC 5322, so prepending is safe — stdin
+# here is a plain header+body message from PHP mail(), never an SMTP conversation.
+#
+# Without MAIL_TAG (dev envs with their own in-namespace Mailpit) this is a transparent
+# pass-through — and the tag header never leaks into mail from tiers that send real mail.
+if [ -n "$MAIL_TAG" ]; then
+  { printf 'X-Tags: %s\n' "$MAIL_TAG"; cat; } | /usr/local/bin/mailpit sendmail "$@"
+else
+  exec /usr/local/bin/mailpit sendmail "$@"
+fi

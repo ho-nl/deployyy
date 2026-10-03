@@ -135,12 +135,23 @@ RUN set -eu; for f in vendor/*/module-theme-sample-data/fixtures/styles.css; do 
 RUN php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"build-only scopes stripped\n");'
 
 # Stage 2: php-fpm runtime
+#
+# No sudo, as in recipes/magento: the base image's `php` wrapper and entrypoint write
+# the PHP config (PHP_EXTENSION_*/PHP_INI_*) through `sudo`, which a container with
+# no-new-privileges cannot run. Every process that starts PHP without the entrypoint
+# then got a bare PHP: no php.ini, no extensions but opcache — the agent workspace's
+# Claude Code container (claude-rc) ran exactly that (2026-10-03, magento2-liquid:
+# "a very limited php cli that doesn't have anything loaded"). Here the app user owns
+# the few files the config step writes and the sudo-less entrypoint and `php` wrapper
+# (.platform/php-entrypoint.sh, .platform/php-wrapper.sh) do the same work, so any
+# process — a Job, `kubectl exec`, an agent — gets the configured PHP.
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS php-fpm
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_BCMATH=1 PHP_EXTENSION_SOAP=1 \
     PHP_EXTENSION_SOCKETS=1 PHP_EXTENSION_SODIUM=1 PHP_EXTENSION_XSL=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_INI_MEMORY_LIMIT=2G \
-    PHP_INI_OPCACHE__ENABLE=1 PHP_INI_DATE__TIMEZONE=Europe/Amsterdam
+    PHP_INI_OPCACHE__ENABLE=1 PHP_INI_DATE__TIMEZONE=Europe/Amsterdam \
+    TEMPLATE_PHP_INI=production
 COPY --from=builder --chown=docker:docker /tmp/magento /var/www/html
 WORKDIR /var/www/html
 COPY --chown=docker:docker .platform/env.php /var/www/html/app/etc/env.php
@@ -173,7 +184,25 @@ RUN curl -fsSL "https://github.com/axllent/mailpit/releases/download/${MAILPIT_V
     && printf 'sendmail_path = /usr/local/bin/sendmail-tagged -t\n' \
         | tee "/etc/php/${PHP_VERSION}/fpm/conf.d/zz-mailpit-sendmail.ini" \
               "/etc/php/${PHP_VERSION}/cli/conf.d/zz-mailpit-sendmail.ini" > /dev/null
-USER docker
+
+# Unprivileged PHP: the app user owns the few files the config step writes, the php.ini
+# templates are linked now (the base entrypoint did that as root), and sudo is gone.
+COPY --chmod=0755 .platform/php-entrypoint.sh /usr/local/bin/deployyy-php-entrypoint.sh
+COPY --chmod=0755 .platform/php-wrapper.sh /usr/bin/php
+RUN set -eux; \
+    ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}.cli" "/etc/php/${PHP_VERSION}/cli/php.ini"; \
+    ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}" "/etc/php/${PHP_VERSION}/fpm/php.ini"; \
+    test -e "/etc/php/${PHP_VERSION}/cli/php.ini" && test -e "/etc/php/${PHP_VERSION}/fpm/php.ini"; \
+    touch "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"; \
+    chown -R docker:docker "/etc/php/${PHP_VERSION}/cli/conf.d" "/etc/php/${PHP_VERSION}/fpm/conf.d" \
+        /var/lib/php/modules "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini" \
+        /opt/php_env_var_cache.php; \
+    gpasswd -d docker sudo || true; \
+    rm -f /etc/sudoers.d/*; \
+    su docker -s /bin/bash -c /usr/local/bin/deployyy-php-entrypoint.sh
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/deployyy-php-entrypoint.sh"]
+CMD ["php-fpm"]
 
 # Stage 3: nginx (serves pub/, proxies PHP to FPM on :9000)
 FROM nginx:1.26-alpine AS nginx

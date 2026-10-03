@@ -25,6 +25,17 @@ $cacheTypes = is_file($cacheTypesFile) ? include $cacheTypesFile : [
     'config_webservice', 'translate',
 ];
 
+// The cache backend's NAME, which changed meaning in 2.4.9. From 2.4.9 Magento caches
+// through Symfony: SymfonyAdapterProvider resolves the backend by a short name ('redis'
+// or 'valkey') and silently falls back to the FILESYSTEM for anything else — including
+// the class name below, which made 2.4.9 run without its Redis cache (found 2026-10-03:
+// zero commands on redis-cache during a full page render). Before 2.4.9 the old factory
+// needs that class name and would treat 'redis' as unknown in turn. One recipe builds
+// every line, so ask the codebase which cache layer it has.
+$cacheBackend = class_exists(\Magento\Framework\Cache\Frontend\Adapter\SymfonyAdapterProvider::class)
+    ? 'redis'
+    : 'Magento\\Framework\\Cache\\Backend\\Redis';
+
 $config = [
     // Marks the deployment as installed (the DB is installed out-of-band by the
     // provisioner). Without this, Magento redirects everything to /setup/.
@@ -60,7 +71,7 @@ $config = [
     'cache' => [
         'frontend' => [
             'default' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend' => $cacheBackend,
                 'backend_options' => [
                     'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
                     'port' => $e('REDIS_CACHE_PORT', '6379'),
@@ -68,7 +79,7 @@ $config = [
                 ],
             ],
             'page_cache' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend' => $cacheBackend,
                 'backend_options' => [
                     'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
                     'port' => $e('REDIS_CACHE_PORT', '6379'),

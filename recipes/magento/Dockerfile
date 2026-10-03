@@ -224,6 +224,23 @@ RUN set -eu; for d in pub/static/adminhtml/*/*/*/; do \
       [ -d "$d" ] || continue; \
       [ -e "$d/js-translation.json" ] || { printf '{}' > "$d/js-translation.json"; echo "seeded empty js-translation.json in $d"; }; \
     done
+# Sample data's own stylesheet, baked into pub/media like the rest of its media.
+#
+# Magento_ThemeSampleData writes pub/media/styles.css DURING setup:install (HeadStyle::add,
+# its comment header stripped) and links every page to it through design/head/includes
+# ({{MEDIA_URL}}styles.css) — the Luma homepage and the sample content blocks are styled
+# by nothing else. A store whose media is a bucket only has the file if that one install
+# put it there: a store copied from another (a project born from a template) inherits the
+# link in its database and gets the file only from the source's bucket, and the Mage-OS
+# template's bucket did not carry it (2026-10-03: /media/styles.css 404 on the template
+# and on every project copied from it, the homepage half unstyled). Baked, it reaches the
+# bucket through the same remote-storage:sync that carries the sample-data media. Written
+# only when absent. (A fresh setup:install appends its own copy to this one: the same few
+# contact-page rules twice, which is harmless.)
+RUN set -eu; for f in vendor/*/module-theme-sample-data/fixtures/styles.css; do \
+      [ -f "$f" ] || continue; \
+      [ -e pub/media/styles.css ] || php -r '$c=preg_replace("/^\/\*[\s\S]+?\*\//","",file_get_contents($argv[1])); if(trim($c)!==""){file_put_contents("pub/media/styles.css",$c); fwrite(STDERR,"sample-data styles.css baked\n");}' "$f"; \
+    done
 # The injected scopes were only needed for the DB-less static-content:deploy. Strip them
 # so the runtime image ships a scope-free config.php (a baked scope block makes
 # app:config:import choke on a fresh install).

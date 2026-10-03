@@ -2,8 +2,13 @@
 #
 # A project repo calls this with a few lines (see README); everything else is
 # derived:
-#   - PHP from composer.json `require.php` (the highest supported minor the
-#     constraint names: 8.4, 8.3 or 8.2; absent → 8.4).
+#   - PHP: the project's choice when it made one (the repository Actions
+#     variable DEPLOYYY_PHP, set by the deployyy operator:
+#     {"default":"8.3","branches":{"staging":"8.4"}}, the branch's entry
+#     first), else composer.json `require.php` (the highest supported minor
+#     the constraint names: 8.4, 8.3 or 8.2; absent → 8.4). A chosen version
+#     is in the tags — php-fpm-<php>-<sha7> + nginx-<php>-<sha7> — the only
+#     ones the operator accepts for a project that chose it.
 #   - The DOCKERFILE is recipes/laravel — unless the repo ships its own
 #     (a repo-local Dockerfile wins wholesale). .platform/* support files are
 #     overlaid per file (a repo-local copy of one file keeps the others).
@@ -47,9 +52,12 @@ jobs:
 
       - name: Resolve PHP and build context
         id: resolve
+        env:
+          DEPLOYYY_PHP: ${{ vars.DEPLOYYY_PHP }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           python3 - <<'EOF'
-          import datetime, json, os, pathlib, re, shutil
+          import datetime, json, os, pathlib, re, shutil, sys
 
           req = json.load(open("composer.json")).get("require", {})
           constraint = req.get("php", "")
@@ -62,6 +70,21 @@ jobs:
               # still builds on the newest, and composer says if it cannot.
               php = supported[0]
           print(f"composer php constraint {constraint!r} -> PHP {php}")
+
+          # The project's PHP choice (set by the deployyy operator) wins.
+          chosen = ""
+          raw = os.environ.get("DEPLOYYY_PHP", "").strip()
+          if raw:
+              try:
+                  choice = json.loads(raw)
+              except ValueError:
+                  sys.exit(f"FATAL: the repository variable DEPLOYYY_PHP is not JSON: {raw!r}")
+              chosen = (choice.get("branches") or {}).get(os.environ["BRANCH"]) or choice.get("default") or ""
+          if chosen:
+              if chosen not in supported:
+                  sys.exit(f"FATAL: Laravel projects run PHP {', '.join(supported)}; PHP {chosen} is not available")
+              php = chosen
+              print(f"PHP {php} (chosen for this project)")
 
           recipe = pathlib.Path(".platform-recipes/recipes/laravel")
           if pathlib.Path("Dockerfile").exists():
@@ -80,7 +103,8 @@ jobs:
 
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"php={php}", file=out)
-          print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          sha7 = os.environ['GITHUB_SHA'][:7]
+          print(f"sha_tag={chosen + '-' + sha7 if chosen else sha7}", file=out)
           print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 

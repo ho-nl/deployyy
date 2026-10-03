@@ -7,7 +7,9 @@
 # recipe; the differences are marked "(not in mageos-3)".
 #
 # Build-args (the workflow resolves them):
-#   PHP_VERSION      — 8.2 (2.4.6), 8.3 (2.4.7), 8.4 (2.4.8, 2.4.9).
+#   PHP_VERSION      — the line's default, 8.2 (2.4.6), 8.3 (2.4.7), 8.4 (2.4.8,
+#                      2.4.9), or the project's choice among the versions the
+#                      line supports (the platform's DEPLOYYY_PHP variable).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #                      static-content:deploy (en_US default).
 #   PLATFORM_GRAPHQL_POST_CACHE — 1 (default) adds

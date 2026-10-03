@@ -4,6 +4,21 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-03
+
+### Builds
+
+- **Choose your PHP version.** A Magento, Mage-OS or Laravel project picks its
+  PHP from the versions its release supports — Magento 2.4.9, 2.4.8 and
+  Mage-OS 3: 8.4 or 8.3; Magento 2.4.7: 8.3 or 8.2; Magento 2.4.6: 8.2 or
+  8.1; Laravel: 8.4, 8.3 or 8.2 — and can change it later, for the project or
+  for one environment. The platform sets the repository variable
+  `DEPLOYYY_PHP`; do not edit it by hand. A project that chose a version gets
+  images tagged with it (`php-fpm-8.3-<sha7>`, `nginx-8.3-<sha7>`), and only
+  those are released, so an environment never runs a build of another PHP.
+  After a change, the next build of each branch makes the new images: push,
+  or re-run the latest build. Without a choice nothing changes.
+
 ## 2026-09-29
 
 ### Builds

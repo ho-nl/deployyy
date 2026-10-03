@@ -23,8 +23,17 @@
 #     Both are pushed by digest first, scanned (trivy: a fixable CRITICAL
 #     fails the build when the caller sets DEPLOYYY_SCAN_ENFORCE=1), and tagged only when both passed; each carries an
 #     SBOM and provenance attestation (.github/actions/build-scan).
-#   - PHP comes from the line (2.4.6 -> 8.2, 2.4.7 -> 8.3, 2.4.8/2.4.9 and
-#     Mage-OS 3 -> 8.4), not from the project.
+#   - PHP: the project's choice when it made one, else the line's default
+#     (2.4.6 -> 8.2, 2.4.7 -> 8.3, 2.4.8/2.4.9 and Mage-OS 3 -> 8.4). The
+#     choice comes from the repository Actions variable DEPLOYYY_PHP, which
+#     the deployyy operator sets from the project configuration:
+#     {"default":"8.3","branches":{"staging":"8.4"}} — the branch's own
+#     entry first, then the project's. A version the line does not support
+#     fails the build, naming the ones it does. A CHOSEN version is part of
+#     the image's identity: the tags become php-fpm-<php>-<sha7> +
+#     nginx-<php>-<sha7>, the only tags the operator accepts for a project
+#     that chose that version (so a build of another PHP never stands in).
+#     No choice: the tags stay php-fpm-<sha7> + nginx-<sha7>.
 #   - GRAPHQL POST CACHE: the magento recipe adds
 #     GraphCommerce_GraphQlVarnishPostCache unless the repository variable
 #     DEPLOYYY_GRAPHQL_POST_CACHE is "0".
@@ -69,6 +78,8 @@ jobs:
         env:
           DEPLOYYY_MAGENTO_LOCALES: ${{ vars.DEPLOYYY_MAGENTO_LOCALES }}
           DEPLOYYY_GRAPHQL_POST_CACHE: ${{ vars.DEPLOYYY_GRAPHQL_POST_CACHE }}
+          DEPLOYYY_PHP: ${{ vars.DEPLOYYY_PHP }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           python3 - <<'EOF'
           import datetime, json, os, pathlib, shutil, sys
@@ -76,20 +87,26 @@ jobs:
           # D2: the line is DERIVED from composer.json, never declared.
           # (deployyy.json's receiver-era `base` field is ignored on purpose.)
           req = json.load(open("composer.json")).get("require", {})
-          LINES = [  # (package, version-prefix, line id, recipe dir, PHP)
+          LINES = [  # (package, version-prefix, line id, recipe dir, PHP versions)
+              # PHP versions: the line's default first (the highest PHP the
+              # release supports on the platform's base images), then what a
+              # project may choose instead. The deployyy catalog
+              # (Magento2Release spec.php / spec.phpVersions) and the
+              # operator's hosted build (internal/build magentoLines) carry
+              # the same table; keep the three in step.
+              #
               # Mage OS 3.x are security releases of one line (same 2.4.9
               # core, same service versions — 3.1/3.2/3.3/3.4 verified),
               # so the match is MAJOR-level. A core change comes as a new
               # major, which simply has no recipe until validated.
-              ("mage-os/product-community-edition", "3.", "mageos-3", "mageos-3", "8.4"),
-              # Magento Open Source: one recipe, PHP per line (the highest
-              # PHP the release supports on the platform's base images).
-              ("magento/product-community-edition", "2.4.9", "magento-249", "magento", "8.4"),
-              ("magento/product-community-edition", "2.4.8", "magento-248", "magento", "8.4"),
-              ("magento/product-community-edition", "2.4.7", "magento-247", "magento", "8.3"),
-              ("magento/product-community-edition", "2.4.6", "magento-246", "magento", "8.2"),
+              ("mage-os/product-community-edition", "3.", "mageos-3", "mageos-3", ["8.4", "8.3"]),
+              # Magento Open Source: one recipe, PHP per line.
+              ("magento/product-community-edition", "2.4.9", "magento-249", "magento", ["8.4", "8.3"]),
+              ("magento/product-community-edition", "2.4.8", "magento-248", "magento", ["8.4", "8.3"]),
+              ("magento/product-community-edition", "2.4.7", "magento-247", "magento", ["8.3", "8.2"]),
+              ("magento/product-community-edition", "2.4.6", "magento-246", "magento", ["8.2", "8.1"]),
           ]
-          match = next(((l, r, php) for p, v, l, r, php in LINES
+          match = next(((l, r, phps) for p, v, l, r, phps in LINES
                         if p in req and req[p].lstrip("~^>=v ").startswith(v)), None)
           if not match:
               plats = {p: v for p, v in req.items() if "product-" in p and "-edition" in p}
@@ -98,7 +115,25 @@ jobs:
                            "recipe; ship a repo-local Dockerfile.")
               sys.exit(f"FATAL: no supported release line in composer.json "
                        f"(found: {plats or 'none'}; supported: {[l for _,_,l,_,_ in LINES]})")
-          line, recipe_id, php = match
+          line, recipe_id, phps = match
+          php = phps[0]
+
+          # The project's PHP choice (set by the deployyy operator): this
+          # branch's entry, else the project's. Malformed JSON is a platform
+          # bug, not the project's — fail loudly rather than build a PHP
+          # nobody chose.
+          chosen = ""
+          raw = os.environ.get("DEPLOYYY_PHP", "").strip()
+          if raw:
+              try:
+                  choice = json.loads(raw)
+              except ValueError:
+                  sys.exit(f"FATAL: the repository variable DEPLOYYY_PHP is not JSON: {raw!r}")
+              chosen = (choice.get("branches") or {}).get(os.environ["BRANCH"]) or choice.get("default") or ""
+          if chosen:
+              if chosen not in phps:
+                  sys.exit(f"FATAL: {line} does not support PHP {chosen}; choose {' or '.join(phps)}")
+              php = chosen
 
           # Escape hatch FIRST: a repo-local Dockerfile wins wholesale, and a
           # line without a platform recipe is fine as long as the repo builds
@@ -136,8 +171,10 @@ jobs:
                           shutil.copy(f, dest)
                           print(f".platform/{f.name}: overlaid from recipe")
           # PHP comes from the line only when the platform Dockerfile builds: a
-          # repo-local Dockerfile keeps its own PHP_VERSION default.
-          if local_dockerfile:
+          # repo-local Dockerfile keeps its own PHP_VERSION default — unless
+          # the project CHOSE a version, which the tags will name, so the
+          # build must at least be asked for it.
+          if local_dockerfile and not chosen:
               php = ""
 
           # Locales for the DB-less static-content:deploy. The platform is
@@ -155,7 +192,7 @@ jobs:
                   pass
           locales = locales or "en_US"
           post_cache = "0" if os.environ.get("DEPLOYYY_GRAPHQL_POST_CACHE", "").strip() == "0" else "1"
-          print(f"line={line} recipe={recipe_id} php={php} locales={locales} graphql_post_cache={post_cache}")
+          print(f"line={line} recipe={recipe_id} php={php} chosen={chosen or '-'} locales={locales} graphql_post_cache={post_cache}")
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"line={line}", file=out)
           # A whole build-arg line, empty when the repo builds its own Dockerfile
@@ -163,7 +200,10 @@ jobs:
           print(f"php_arg={'PHP_VERSION=' + php if php else ''}", file=out)
           print(f"locales={locales}", file=out)
           print(f"post_cache={post_cache}", file=out)
-          print(f"sha_tag={os.environ['GITHUB_SHA'][:7]}", file=out)
+          # The release tag: php-fpm-<tag> / nginx-<tag>. A chosen PHP is in
+          # it, BEFORE the sha (the operator reads the sha off the end).
+          sha7 = os.environ['GITHUB_SHA'][:7]
+          print(f"sha_tag={chosen + '-' + sha7 if chosen else sha7}", file=out)
           print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 

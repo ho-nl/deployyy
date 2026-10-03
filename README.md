@@ -78,6 +78,14 @@ holds your project configuration:
 - The release line comes from your `composer.json`. You do not declare it.
 - Your service stack (database, search, queue, cache) is part of your
   project configuration on the platform.
+- PHP is your release line's default (2.4.6: 8.2, 2.4.7: 8.3, 2.4.8,
+  2.4.9 and Mage-OS 3: 8.4) unless you choose another version the line
+  supports in the console. The platform then sets the repository variable
+  `DEPLOYYY_PHP`, and the build tags its images with the version
+  (`php-fpm-8.3-<sha7>`). After you change it, push or re-run the latest
+  build: the environment keeps its current build until the new one exists.
+  If your repository has its own `Dockerfile`, it receives the version as the
+  `PHP_VERSION` build argument.
 - The static-content locales come from the repository variable
   `DEPLOYYY_MAGENTO_LOCALES`. The platform sets this variable from your
   project configuration. The default is `en_US`. Do not edit the variable

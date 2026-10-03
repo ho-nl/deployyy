@@ -8,10 +8,14 @@
 # eigen Dockerfile") is over for repos on the caller flow.
 #
 # Per-project knobs arrive as build-args (the workflow resolves them):
+#   PHP_VERSION      — 8.4 (the line's default) or 8.3, the project's choice
+#   (the platform's DEPLOYYY_PHP variable; Magento 2.4.9 supports both).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #   static-content:deploy (from deployyy.json .build.locales; en_US default).
+ARG PHP_VERSION=8.4
+
 # Stage 1: dependencies + compile + static content
-FROM thecodingmachine/php:8.4-v5-fpm-node22 AS builder
+FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS builder
 
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_BCMATH=1 PHP_EXTENSION_SOAP=1 \
@@ -114,7 +118,7 @@ RUN set -eu; for d in pub/static/adminhtml/*/*/*/; do \
 RUN php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"build-only scopes stripped\n");'
 
 # Stage 2: php-fpm runtime
-FROM thecodingmachine/php:8.4-v5-fpm-node22 AS php-fpm
+FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS php-fpm
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_BCMATH=1 PHP_EXTENSION_SOAP=1 \
     PHP_EXTENSION_SOCKETS=1 PHP_EXTENSION_SODIUM=1 PHP_EXTENSION_XSL=1 \
@@ -137,7 +141,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-c
 # header).
 #
 # The ini paths are PHP-VERSION-SPECIFIC (/etc/php/<version>/{fpm,cli}/conf.d/), so they
-# are templated from the same 8.4 the base images use — hardcoding one
+# are templated from $PHP_VERSION, the same version the base images use — hardcoding one
 # version onto another image silently re-breaks mail (the drop-in lands in a directory
 # no PHP reads). Both fpm AND cli: cron/consumers send mail from the CLI SAPI.
 ENV MAILPIT_VERSION=v1.30.6 \
@@ -150,8 +154,8 @@ RUN curl -fsSL "https://github.com/axllent/mailpit/releases/download/${MAILPIT_V
     && chmod +x /usr/local/bin/mailpit /usr/local/bin/sendmail-tagged \
     && rm /tmp/mailpit.tar.gz \
     && printf 'sendmail_path = /usr/local/bin/sendmail-tagged -t\n' \
-        | tee /etc/php/8.4/fpm/conf.d/zz-mailpit-sendmail.ini \
-              /etc/php/8.4/cli/conf.d/zz-mailpit-sendmail.ini > /dev/null
+        | tee "/etc/php/${PHP_VERSION}/fpm/conf.d/zz-mailpit-sendmail.ini" \
+              "/etc/php/${PHP_VERSION}/cli/conf.d/zz-mailpit-sendmail.ini" > /dev/null
 USER docker
 
 # Stage 3: nginx (serves pub/, proxies PHP to FPM on :9000)

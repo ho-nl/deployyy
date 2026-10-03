@@ -25,6 +25,14 @@ $cacheTypes = is_file($cacheTypesFile) ? include $cacheTypesFile : [
     'config_webservice', 'translate',
 ];
 
+// The cache backend's NAME. Mage-OS 3 (Magento 2.4.9 base) caches through Symfony:
+// SymfonyAdapterProvider resolves the backend by a short name ('redis' or 'valkey') and
+// silently falls back to the FILESYSTEM for anything it does not know — including the
+// pre-2.4.9 class name Magento\Framework\Cache\Backend\Redis, which made every
+// Mage-OS environment run without its Redis/Valkey cache (found 2026-10-03: zero
+// commands on redis-cache during a full page render).
+$cacheBackend = 'redis';
+
 $config = [
     // Marks the deployment as installed (the DB is installed out-of-band by the
     // provisioner). Without this, Magento redirects everything to /setup/.
@@ -60,7 +68,7 @@ $config = [
     'cache' => [
         'frontend' => [
             'default' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend' => $cacheBackend,
                 'backend_options' => [
                     'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
                     'port' => $e('REDIS_CACHE_PORT', '6379'),
@@ -68,7 +76,7 @@ $config = [
                 ],
             ],
             'page_cache' => [
-                'backend' => 'Magento\\Framework\\Cache\\Backend\\Redis',
+                'backend' => $cacheBackend,
                 'backend_options' => [
                     'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
                     'port' => $e('REDIS_CACHE_PORT', '6379'),

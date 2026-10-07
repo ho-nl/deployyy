@@ -1,0 +1,47 @@
+# Hand a branch's GitHub variables and secrets to Deployyy, for the running app.
+#
+# After a successful build, the same set the build used (project-values) goes
+# to the Deployyy API, which writes it into the environment that runs this
+# branch — the variables the app reads with getenv(). Variables stay readable
+# in the console, secrets are write-only there.
+#
+# Authenticated with the job's GitHub Actions OIDC token (audience
+# `deployyy`): no stored credential. The job needs `permissions: id-token:
+# write`. Deployyy verifies the token against GitHub's keys and maps its
+# `repository` claim to the connected project and its `ref` to that project's
+# environment for the branch; anything else is refused.
+#
+# It never fails the build. When Deployyy cannot take the values — the
+# endpoint is not live yet, the branch has no environment, the project is not
+# connected — it says so as a warning and the environment keeps the values it
+# had. A branch whose environment is still being created is retried for about
+# two minutes.
+
+name: deliver-values
+description: Send a branch's GitHub variables and secrets to its Deployyy environment
+
+inputs:
+  values:
+    description: Path of the JSON {variables, secrets} project-values wrote
+    required: true
+  platform:
+    description: What this build is for — magento2, laravel or nextjs — when one repository runs several projects
+    default: ""
+  url:
+    description: The Deployyy API endpoint
+    default: https://deployyy.app/api/v1/github/values
+  audience:
+    description: The OIDC audience Deployyy accepts
+    default: deployyy
+
+runs:
+  using: composite
+  steps:
+    - name: Deliver variables and secrets to the environment
+      shell: bash
+      env:
+        VALUES: ${{ inputs.values }}
+        PLATFORM: ${{ inputs.platform }}
+        URL: ${{ inputs.url }}
+        AUDIENCE: ${{ inputs.audience }}
+      run: python3 "$GITHUB_ACTION_PATH/deliver.py"

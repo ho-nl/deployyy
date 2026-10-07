@@ -1,0 +1,72 @@
+# A project's GitHub variables and secrets, without anybody naming them.
+#
+# GitHub is the only place a project keeps its variables and secrets. The
+# caller hands ALL of them over in one go, the same two lines in every project:
+#
+#   with:
+#     vars: ${{ toJSON(vars) }}
+#   secrets:
+#     all: ${{ toJSON(secrets) }}
+#
+# and this action turns them into what a build and a running app need:
+#
+#   - every secret value is masked (`::add-mask::`, line by line, and in its
+#     JSON-escaped spelling) before anything else is printed;
+#   - the sets are merged: the caller's (repository + organization), then what
+#     the job itself sees — its GitHub Environment's variables and secrets
+#     when the job runs in one, and every secret a `secrets: inherit` caller
+#     passed — so an Environment named after the branch overrides the
+#     repository's values. A name that is both a variable and a secret is a
+#     secret;
+#   - `github_token` (the job's own GITHUB_TOKEN) is dropped: it is not the
+#     project's, and it must never reach the running app;
+#   - every key becomes an environment variable of the remaining steps
+#     (`export`), and is written as the BuildKit secret file `build-env`
+#     (KEY='value' lines, shell-quoted) that a recipe — or a project's own
+#     Dockerfile — mounts with `--mount=type=secret,id=build-env`;
+#   - the same set is written for `deliver-values`, which hands it to Deployyy
+#     for the branch's environment after a successful build.
+#
+# Names only are printed, never a value.
+
+name: project-values
+description: Mask, merge and export a project's GitHub variables and secrets for its build
+
+inputs:
+  vars:
+    description: The caller's variables as JSON (`toJSON(vars)`, the workflow's `vars` input)
+    default: "{}"
+  secrets:
+    description: The caller's secrets as JSON (`toJSON(secrets)`, the workflow's `all` secret)
+    default: ""
+  job-vars:
+    description: This job's `toJSON(vars)` — its GitHub Environment's variables override the caller's
+    default: "{}"
+  job-secrets:
+    description: This job's `toJSON(secrets)` — its GitHub Environment's secrets, and what `secrets inherit` passed
+    default: "{}"
+  export:
+    description: '"true" makes every key an environment variable of the steps after this one'
+    default: "true"
+
+outputs:
+  build-env:
+    description: Path of the BuildKit secret file `build-env` (mode 600)
+    value: ${{ steps.values.outputs.build-env }}
+  values:
+    description: Path of the JSON {variables, secrets} that deliver-values sends (mode 600)
+    value: ${{ steps.values.outputs.values }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mask and merge the project's variables and secrets
+      id: values
+      shell: bash
+      env:
+        IN_VARS: ${{ inputs.vars }}
+        IN_SECRETS: ${{ inputs.secrets }}
+        JOB_VARS: ${{ inputs.job-vars }}
+        JOB_SECRETS: ${{ inputs.job-secrets }}
+        EXPORT: ${{ inputs.export }}
+      run: python3 "$GITHUB_ACTION_PATH/values.py"

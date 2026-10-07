@@ -8,19 +8,33 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Builds
 
-- **Composer credentials reach builds from any GitHub organization.** The
-  Magento and Laravel build workflows now accept `COMPOSER_AUTH` (and, for
-  Magento, the legacy `MAGENTO_AUTH_JSON`) as named secrets. Pass them by name
-  instead of `secrets: inherit`, which GitHub only honours inside the `ho-nl`
-  organization — a repository elsewhere built without its credentials:
+- **GitHub is the only place for a project's variables and secrets.** Every
+  build workflow (Magento, Laravel, Next.js/GraphCommerce) takes all of them
+  in one go, without naming any, and the caller is the same in every project
+  — from any GitHub organization:
 
   ```yaml
+  permissions:
+    contents: read
+    packages: write
+    actions: read
+    id-token: write
+  with:
+    vars: ${{ toJSON(vars) }}
   secrets:
-    COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
-    MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+    all: ${{ toJSON(secrets) }}
   ```
 
-  A secret you have not set arrives empty, as before.
+  Every secret is masked, every value is an environment variable of the build
+  (and the BuildKit secret `build-env`), and after a successful build the same
+  set reaches the branch's environment on Deployyy for the running app —
+  authenticated with the build's GitHub OIDC token, no stored credential. A
+  GitHub Environment named after the branch overrides the repository's values.
+  `COMPOSER_AUTH` is simply one of your secrets. **Update your caller
+  workflows**: the named `COMPOSER_AUTH` / `MAGENTO_AUTH_JSON` secrets are no
+  longer declared, so a caller that still passes them by name stops with
+  "secret is not defined in the referenced workflow". Values that were set in
+  the console move to GitHub: the console now lists names only.
 - **An unapplied patch fails the build.** Every `*.patch` file in `patches/`
   must be in the installed code after `composer install`, or the Magento and
   Mage-OS build stops and names the file. Declare patches in `extra.patches`

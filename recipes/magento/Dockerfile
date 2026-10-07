@@ -57,6 +57,13 @@ RUN rm -f /tmp/magento/auth.json
 # (not in mageos-3) The workflow's checkout of this repo sits in the build context; it is
 # not part of the application.
 RUN rm -rf /tmp/magento/.platform-recipes
+# Fail the build for a patch that never reached the code. vaimo/composer-patches can skip
+# a patch WITHOUT failing — a header naming no installed package, or the folder scan's
+# implicit `@version >=0.0.0` against a branch install (dev-main) — and the build then
+# says "Nothing to patch", stays green and ships the code unpatched (deployyy-operator
+# #276). This checks the installed code itself: every *.patch in patches/ must reverse
+# cleanly in its target package, or the build stops naming the file.
+RUN php .platform/check-patches.php
 
 # (not in mageos-3) Platform modules. Each goes to app/code (Magento's own
 # non-composer module path, loaded by app/etc/NonComposerComponentRegistration.php)

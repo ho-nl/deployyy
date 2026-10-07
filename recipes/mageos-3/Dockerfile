@@ -46,6 +46,13 @@ COPY --chown=docker:docker . /tmp/magento/
 # GHCR would contain the credentials. It CANNOT simply be .dockerignore'd: the
 # builder needs it for its own COPY (composer install), so it is deleted here instead.
 RUN rm -f /tmp/magento/auth.json
+# Fail the build for a patch that never reached the code. vaimo/composer-patches can skip
+# a patch WITHOUT failing — a header naming no installed package, or the folder scan's
+# implicit `@version >=0.0.0` against a branch install (dev-main) — and the build then
+# says "Nothing to patch", stays green and ships the code unpatched (deployyy-operator
+# #276). This checks the installed code itself: every *.patch in patches/ must reverse
+# cleanly in its target package, or the build stops naming the file.
+RUN php .platform/check-patches.php
 # Ensure app/etc/config.php defines default store scopes — static-content:deploy
 # needs a default website at build time (no DB). Injected only if absent.
 RUN php -r '$f="app/etc/config.php"; $c=file_exists($f)?(include $f):[]; if(empty($c["scopes"]["websites"])){ $c["scopes"]=["websites"=>["base"=>["website_id"=>"1","code"=>"base","name"=>"Main Website","sort_order"=>"0","default_group_id"=>"1","is_default"=>"1"]],"groups"=>["1"=>["group_id"=>"1","website_id"=>"1","name"=>"Main Website Store","root_category_id"=>"2","default_store_id"=>"1"]],"stores"=>["default"=>["store_id"=>"1","code"=>"default","website_id"=>"1","group_id"=>"1","name"=>"Default Store View","sort_order"=>"0","is_active"=>"1"]]]; file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"default scopes injected\n"); }'

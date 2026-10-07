@@ -44,7 +44,9 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/magento2-build.yml@main
-    secrets: inherit
+    secrets:
+      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+      MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
 ```
 
 ```yaml
@@ -59,8 +61,16 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/magento2-build.yml@main
-    secrets: inherit
+    secrets:
+      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+      MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
 ```
+
+Pass the Composer credentials by name as above, not with `secrets: inherit`:
+GitHub only lets `inherit` reach a reusable workflow in the caller's own
+organization, so a repository outside `ho-nl` would build without them. A secret
+you have not set arrives empty, which is fine for public packages (Mage-OS needs
+none).
 
 ### Step 4 — Push a branch
 
@@ -124,11 +134,29 @@ enables it in `app/etc/config.php`; your `composer.lock` does not change.
    replaces only that one file.
 4. Project patches are applied at install time. Put your
    [vaimo/composer-patches](https://github.com/vaimo/composer-patches) files
-   in a `patches/` directory at the repository root (and point
-   `extra.patches-search` or `extra.patches` sources at it). The recipe
-   copies that directory into the build context **before** `composer
-   install`, so the plugin can apply the patches. A project without a
-   `patches/` directory builds unchanged.
+   in a `patches/` directory at the repository root and declare each one in
+   `extra.patches` of `composer.json`:
+
+   ```json
+   "extra": {
+       "patches": {
+           "mage-os/magento2-base": {
+               "What the patch fixes": "patches/the-fix.patch"
+           }
+       }
+   }
+   ```
+
+   The recipe copies that directory into the build context **before**
+   `composer install`, so the plugin can apply the patches, and then
+   **fails the build** for every `*.patch` file in `patches/` that is not in
+   the installed code (`.platform/check-patches.php`). Prefer `extra.patches`
+   over the `extra.patches-search` folder scan: the scan silently skips a
+   patch whose header names no installed package, and every patch for a
+   branch install (`dev-main`) unless the header carries `@version *` — the
+   build said "Nothing to patch" and shipped the code unpatched. A file that
+   belongs in `patches/` but must not be applied carries `@skip` in its
+   header. A project without a `patches/` directory builds unchanged.
 
 ## Recipes
 
@@ -154,7 +182,8 @@ of these releases:
   primary key for it, the build adds the module
   `Deployyy_QueuePoisonPillPk`, and the next `setup:upgrade` adds the key.
 - **composer-patches**: the `patches/` directory is in the build before
-  `composer install` (see step 4 above).
+  `composer install`, and a patch file there that did not reach the
+  installed code fails the build (see step 4 above).
 - **Minification**: the build records whether it deployed minified JS and
   CSS (`app/etc/static_build.php`), and `env.php` sets the runtime
   minification to match. A database with other minification settings cannot
@@ -218,6 +247,10 @@ jobs:
     uses: ho-nl/deployyy/.github/workflows/graphcommerce-build.yml@main
     secrets: inherit
 ```
+
+`secrets: inherit` hands the build your `GC_*` / `NEXT_PUBLIC_*` secrets only
+when the repository is in the `ho-nl` organization; from any other organization
+put that build input in repository variables instead.
 
 The workflow builds two images and pushes them to `ghcr.io/<your-repo>`:
 
@@ -289,7 +322,8 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/laravel-build.yml@main
-    secrets: inherit
+    secrets:
+      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
 ```
 
 The PHP version comes from `require.php` in `composer.json` (8.2–8.4). The

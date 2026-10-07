@@ -24,7 +24,13 @@
 #                            operator probes (repository_controller.go
 #                            tagPrefixes: GraphCommerceApp {"sha-", ""}).
 #
-# Secrets (`secrets: inherit`): none required.
+# Secrets (`secrets: inherit`): none required. The GC_* / NEXT_PUBLIC_*
+# secrets above are read by name prefix from whatever the caller passed, so
+# they cannot be declared under on.workflow_call.secrets, and they reach this
+# workflow only through `secrets: inherit` — which GitHub honours only for a
+# caller in ho-nl (or its enterprise). A project in another organization gets
+# none of them: put that build input in repository VARIABLES instead (vars
+# are read from the caller's repository), or ship a repo-local Dockerfile.
 
 name: nextjs-build
 

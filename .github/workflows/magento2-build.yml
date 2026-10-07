@@ -38,12 +38,29 @@
 #     GraphCommerce_GraphQlVarnishPostCache unless the repository variable
 #     DEPLOYYY_GRAPHQL_POST_CACHE is "0".
 #
-# Secrets (pass `secrets: inherit` in the caller): the composer auth.json
-# content as PER-PROJECT secret — COMPOSER_AUTH (preferred name) or the
-# legacy MAGENTO_AUTH_JSON; one of the two must exist on the calling repo.
-# Deliberately NOT an org secret: the platform must work for third parties,
-# and a third-party org never has ours. No other setup needed — this repo
-# is public.
+# Secrets: the composer auth.json content as PER-PROJECT secret —
+# COMPOSER_AUTH (preferred name, which the deployyy operator writes from the
+# project's COMPOSER_AUTH variable) or the legacy MAGENTO_AUTH_JSON. Both are
+# optional: with neither the build runs with empty credentials, which is all
+# a Mage-OS project on public repositories needs. Deliberately NOT an org
+# secret: the platform must work for third parties, and a third-party org
+# never has ours. No other setup needed — this repo is public.
+#
+# The caller passes them EXPLICITLY, not with `secrets: inherit`:
+#
+#   secrets:
+#     COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+#     MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+#
+# `secrets: inherit` only reaches a reusable workflow in the caller's own
+# organization or enterprise. This one lives in ho-nl, so a project in any
+# other organization (graphcommerce-org/project-catalogreadmodel,
+# deployyy-operator#276) got NO secrets that way — the build said "no
+# COMPOSER_AUTH / MAGENTO_AUTH_JSON configured" although the repository had
+# one. Secrets declared under on.workflow_call.secrets and passed by name
+# work within and across organizations; a secret the caller does not have is
+# passed as an empty string, which is the "not configured" case below.
+# `secrets: inherit` still works for a caller inside ho-nl.
 
 name: magento2-build
 
@@ -54,6 +71,15 @@ on:
         type: string
         default: ubicloud-standard-16
         description: Runner label (trede 2 of #66 moves this to hosted pools)
+    # Declared so a caller can pass them by name (see the header: inherit does
+    # not cross organizations). Optional: none is needed for public packages.
+    secrets:
+      COMPOSER_AUTH:
+        required: false
+        description: Composer auth.json content (preferred)
+      MAGENTO_AUTH_JSON:
+        required: false
+        description: Composer auth.json content (legacy name)
 
 jobs:
   build:

@@ -12,7 +12,9 @@
 #
 # GraphCommerce-specific build input goes in repository variables or secrets
 # named GC_* (for example GC_MAGENTO_ENDPOINT when graphcommerce.config.js
-# does not set it); nextjs-build passes those to `next build`.
+# does not set it); nextjs-build passes those to `next build`. Secrets need
+# `secrets: inherit`, which only works for a caller inside ho-nl: from another
+# organization use repository variables (see nextjs-build.yml).
 
 name: graphcommerce-build
 

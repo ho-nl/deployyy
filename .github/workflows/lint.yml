@@ -29,13 +29,13 @@ jobs:
 
       - name: PHP and JavaScript syntax
         run: |
-          for f in recipes/*/platform/env.php; do php -l "$f"; done
+          for f in recipes/*/platform/*.php; do php -l "$f"; done
           for f in graphcommerce/*.mjs recipes/*/platform/*.mjs; do node --check "$f"; done
 
       # recipes/magento started from recipes/mageos-3. These support files must
       # stay the same in both; a fix to one belongs in the other.
       - name: Shared Magento support files have not drifted
         run: |
-          for f in nginx-default.conf sendmail-tagged; do
+          for f in nginx-default.conf sendmail-tagged check-patches.php; do
             diff -u "recipes/mageos-3/platform/$f" "recipes/magento/platform/$f"
           done

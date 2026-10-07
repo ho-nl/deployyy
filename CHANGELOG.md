@@ -4,6 +4,32 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-07
+
+### Builds
+
+- **Composer credentials reach builds from any GitHub organization.** The
+  Magento and Laravel build workflows now accept `COMPOSER_AUTH` (and, for
+  Magento, the legacy `MAGENTO_AUTH_JSON`) as named secrets. Pass them by name
+  instead of `secrets: inherit`, which GitHub only honours inside the `ho-nl`
+  organization — a repository elsewhere built without its credentials:
+
+  ```yaml
+  secrets:
+    COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+    MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+  ```
+
+  A secret you have not set arrives empty, as before.
+- **An unapplied patch fails the build.** Every `*.patch` file in `patches/`
+  must be in the installed code after `composer install`, or the Magento and
+  Mage-OS build stops and names the file. Declare patches in `extra.patches`
+  of `composer.json`: the `extra.patches-search` folder scan skipped some
+  patches without an error (a branch install such as `dev-main`, or a header
+  naming no installed package), and the build shipped the code unpatched. A
+  file that must stay in `patches/` without being applied carries `@skip` in
+  its header.
+
 ## 2026-10-03
 
 ### Builds

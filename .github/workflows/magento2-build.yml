@@ -34,9 +34,6 @@
 #     nginx-<php>-<sha7>, the only tags the operator accepts for a project
 #     that chose that version (so a build of another PHP never stands in).
 #     No choice: the tags stay php-fpm-<sha7> + nginx-<sha7>.
-#   - GRAPHQL POST CACHE: the magento recipe adds
-#     GraphCommerce_GraphQlVarnishPostCache unless the repository variable
-#     DEPLOYYY_GRAPHQL_POST_CACHE is "0".
 #
 # Variables and secrets: ALL of the project's, never named. The caller passes
 # them in one go, identical for every project (README "Variables and
@@ -158,7 +155,7 @@ jobs:
 
       - name: Resolve release line, locales and build context
         id: resolve
-        # DEPLOYYY_MAGENTO_LOCALES, DEPLOYYY_GRAPHQL_POST_CACHE and DEPLOYYY_PHP
+        # DEPLOYYY_MAGENTO_LOCALES and DEPLOYYY_PHP
         # (the platform's settings, written by the operator) are in the
         # environment already, with the rest of the project's variables.
         env:
@@ -274,15 +271,13 @@ jobs:
               except FileNotFoundError:
                   pass
           locales = locales or "en_US"
-          post_cache = "0" if os.environ.get("DEPLOYYY_GRAPHQL_POST_CACHE", "").strip() == "0" else "1"
-          print(f"line={line} recipe={recipe_id} php={php} chosen={chosen or '-'} locales={locales} graphql_post_cache={post_cache}")
+          print(f"line={line} recipe={recipe_id} php={php} chosen={chosen or '-'} locales={locales}")
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"line={line}", file=out)
           # A whole build-arg line, empty when the repo builds its own Dockerfile
           # (an empty line is skipped; `PHP_VERSION=` would blank its default).
           print(f"php_arg={'PHP_VERSION=' + php if php else ''}", file=out)
           print(f"locales={locales}", file=out)
-          print(f"post_cache={post_cache}", file=out)
           # The release tag: php-fpm-<tag> / nginx-<tag>. A chosen PHP is in
           # it, BEFORE the sha (the operator reads the sha off the end).
           sha7 = os.environ['GITHUB_SHA'][:7]
@@ -329,7 +324,6 @@ jobs:
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
-            PLATFORM_GRAPHQL_POST_CACHE=${{ steps.resolve.outputs.post_cache }}
           # Do not let the later nginx export replace the PHP runtime layers.
           # Import the legacy scope once for existing projects during migration.
           cache-from: |
@@ -349,7 +343,6 @@ jobs:
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
-            PLATFORM_GRAPHQL_POST_CACHE=${{ steps.resolve.outputs.post_cache }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}
           cache-from: |
             type=gha,scope=nginx

@@ -19,15 +19,18 @@
 #     and tagged only when both passed, with SBOM + provenance attestations
 #     (.github/actions/build-scan).
 #
-# Secrets: COMPOSER_AUTH, optional — public packages need none. Pass it
-# explicitly, not with `secrets: inherit`, which only reaches a reusable
-# workflow in the caller's own organization (this one lives in ho-nl):
+# Variables and secrets: ALL of the project's, never named — the same hand-off
+# and the same handling as magento2-build.yml (see its header):
 #
+#   with:
+#     vars: ${{ toJSON(vars) }}
 #   secrets:
-#     COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+#     all: ${{ toJSON(secrets) }}
 #
-# A secret passed by name works within and across organizations, and one the
-# caller does not have arrives empty (built without credentials).
+# A GitHub Environment named after the branch overrides the repository's
+# values. COMPOSER_AUTH, when the project has it, becomes auth.json; public
+# packages need none. After a successful build the set goes to Deployyy for
+# this branch's environment (deliver-values, OIDC, never fails the build).
 
 name: laravel-build
 
@@ -38,18 +41,57 @@ on:
         type: string
         default: ubicloud-standard-8
         description: Runner label
-    # Declared so a caller can pass it by name (see the header).
+      vars:
+        type: string
+        default: "{}"
+        description: "The caller's variables, all of them: toJSON(vars)"
     secrets:
-      COMPOSER_AUTH:
+      all:
         required: false
-        description: Composer auth.json content
+        description: "The caller's secrets, all of them: toJSON(secrets)"
 
 jobs:
+  # Which GitHub Environment the build runs in: the one named after the branch,
+  # when the repository has it. Looked up rather than assumed, because a job
+  # that names an Environment that does not exist creates it — one per preview
+  # branch, for nothing.
+  environment:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      name: ${{ steps.find.outputs.name }}
+    steps:
+      - name: Find the GitHub Environment named after the branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "branch" ]; then
+            echo "not a branch: the repository's variables and secrets apply"; exit 0
+          fi
+          enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$REPO/environments/$enc" || echo 000)
+          case "$code" in
+            200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
+                 echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
+            404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
+            *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
+          esac
+
   build:
+    needs: environment
     runs-on: ${{ inputs.runs-on }}
+    environment: ${{ needs.environment.outputs.name }}
     permissions:
       contents: read
       packages: write
+      id-token: write   # deliver-values: the OIDC token Deployyy verifies
     steps:
       - uses: actions/checkout@v4
 
@@ -62,10 +104,19 @@ jobs:
             recipes
             .github/actions
 
+      - name: The project's variables and secrets
+        id: values
+        uses: ./.platform-recipes/.github/actions/project-values
+        with:
+          vars: ${{ inputs.vars }}
+          secrets: ${{ secrets.all }}
+          job-vars: ${{ toJSON(vars) }}
+          job-secrets: ${{ toJSON(secrets) }}
+
       - name: Resolve PHP and build context
         id: resolve
+        # DEPLOYYY_PHP (the platform's setting) is in the environment already.
         env:
-          DEPLOYYY_PHP: ${{ vars.DEPLOYYY_PHP }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 - <<'EOF'
@@ -121,10 +172,10 @@ jobs:
           EOF
 
       - name: Write auth.json
-        env:
-          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+        # COMPOSER_AUTH is one of the project's secrets, exported by
+        # project-values like every other key.
         run: |
-          if [ -n "$COMPOSER_AUTH" ]; then echo "$COMPOSER_AUTH" > auth.json
+          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > auth.json
           else echo '{}' > auth.json; fi
 
       - uses: docker/setup-buildx-action@v3
@@ -142,8 +193,9 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: php-fpm
           label: php-fpm
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
+          secret-files: build-env=${{ steps.values.outputs.build-env }}
           cache-from: type=gha,scope=php-fpm
           cache-to: type=gha,scope=php-fpm,mode=max,ignore-error=true
 
@@ -154,7 +206,8 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: nginx
           label: nginx
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          secret-files: build-env=${{ steps.values.outputs.build-env }}
           build-args: |
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}
@@ -174,3 +227,11 @@ jobs:
           docker buildx imagetools create -t "$image:nginx-$SHA_TAG" "$NGINX_REF"
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
           echo "released $image:php-fpm-$SHA_TAG + nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The same variables and secrets, for the running app: Deployyy writes
+      # them into this branch's environment. Never fails the build.
+      - name: Deliver variables and secrets to the environment
+        uses: ./.platform-recipes/.github/actions/deliver-values
+        with:
+          values: ${{ steps.values.outputs.values }}
+          platform: laravel

@@ -3,18 +3,25 @@
 # A GraphCommerce storefront is a Next.js app, and the platform builds it with
 # the same recipe (recipes/nextjs) and the same workflow as any Next.js app;
 # see nextjs-build.yml for the full contract. This file exists so a
-# GraphCommerce project can name what it is:
+# GraphCommerce project can name what it is, with the same hand-off as every
+# other project — all of its variables and secrets, never named:
 #
 #   jobs:
 #     build:
 #       uses: ho-nl/deployyy/.github/workflows/graphcommerce-build.yml@main
-#       secrets: inherit
+#       permissions:
+#         contents: read
+#         packages: write
+#         actions: read
+#         id-token: write
+#       with:
+#         vars: ${{ toJSON(vars) }}
+#       secrets:
+#         all: ${{ toJSON(secrets) }}
 #
-# GraphCommerce-specific build input goes in repository variables or secrets
-# named GC_* (for example GC_MAGENTO_ENDPOINT when graphcommerce.config.js
-# does not set it); nextjs-build passes those to `next build`. Secrets need
-# `secrets: inherit`, which only works for a caller inside ho-nl: from another
-# organization use repository variables (see nextjs-build.yml).
+# Build input such as GC_MAGENTO_ENDPOINT (when graphcommerce.config.js does
+# not set it) is a repository variable or secret like any other; it reaches
+# `next build` and, after the build, the running storefront.
 
 name: graphcommerce-build
 
@@ -25,13 +32,28 @@ on:
         type: string
         default: ubicloud-standard-8
         description: Runner label
+      vars:
+        type: string
+        default: "{}"
+        description: "The caller's variables, all of them: toJSON(vars)"
+    secrets:
+      all:
+        required: false
+        description: "The caller's secrets, all of them: toJSON(secrets)"
 
 jobs:
   build:
     permissions:
       contents: read
       packages: write
+      actions: read
+      id-token: write
     uses: ho-nl/deployyy/.github/workflows/nextjs-build.yml@main
     with:
       runs-on: ${{ inputs.runs-on }}
-    secrets: inherit
+      platform: graphcommerce
+      # A caller still on `secrets: inherit` (inside ho-nl) has no `all`:
+      # hand on what it inherited instead.
+      vars: ${{ inputs.vars != '{}' && inputs.vars || toJSON(vars) }}
+    secrets:
+      all: ${{ secrets.all || toJSON(secrets) }}

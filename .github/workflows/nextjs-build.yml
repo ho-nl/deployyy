@@ -11,9 +11,9 @@
 #     project's next.config with `cacheHandler` (graphcommerce/
 #     cache-handler.mjs) and `cacheMaxMemorySize: 0`. Projects carry no cache
 #     code and no cache config.
-#   - BUILD ENV: repository variables named NEXT_PUBLIC_* or GC_*, and
-#     secrets named GC_* or NEXT_PUBLIC_*, reach `next build` as a BuildKit
-#     secret (never a build-arg, never in a layer or in the provenance).
+#   - BUILD ENV: every variable and secret of the project reaches `next
+#     build` as the BuildKit secret `build-env` (never a build-arg, never in a
+#     layer or in the provenance), the way a Vercel build sees all of them.
 #
 # Images (ghcr.io/<caller repo>), tagged only after both passed the scan:
 #   - sha-<sha7>-cache-seed  the prerendered routes in the cache handler's
@@ -24,13 +24,19 @@
 #                            operator probes (repository_controller.go
 #                            tagPrefixes: GraphCommerceApp {"sha-", ""}).
 #
-# Secrets (`secrets: inherit`): none required. The GC_* / NEXT_PUBLIC_*
-# secrets above are read by name prefix from whatever the caller passed, so
-# they cannot be declared under on.workflow_call.secrets, and they reach this
-# workflow only through `secrets: inherit` — which GitHub honours only for a
-# caller in ho-nl (or its enterprise). A project in another organization gets
-# none of them: put that build input in repository VARIABLES instead (vars
-# are read from the caller's repository), or ship a repo-local Dockerfile.
+# Variables and secrets: ALL of the project's, never named — the same hand-off
+# and the same handling as magento2-build.yml (see its header):
+#
+#   with:
+#     vars: ${{ toJSON(vars) }}
+#   secrets:
+#     all: ${{ toJSON(secrets) }}
+#
+# This works for a caller in any organization (`secrets: inherit` does not, and
+# from ho-nl it still does). A GitHub Environment named after the branch
+# overrides the repository's values. After a successful build the set goes to
+# Deployyy for this branch's environment (deliver-values, OIDC, never fails
+# the build), where the running server reads it from process.env.
 
 name: nextjs-build
 
@@ -41,13 +47,61 @@ on:
         type: string
         default: ubicloud-standard-8
         description: Runner label
+      vars:
+        type: string
+        default: "{}"
+        description: "The caller's variables, all of them: toJSON(vars)"
+      platform:
+        type: string
+        default: nextjs
+        description: Which kind of project this build is for, when one repository runs several
+    secrets:
+      all:
+        required: false
+        description: "The caller's secrets, all of them: toJSON(secrets)"
 
 jobs:
+  # Which GitHub Environment the build runs in: the one named after the branch,
+  # when the repository has it. Looked up rather than assumed, because a job
+  # that names an Environment that does not exist creates it — one per preview
+  # branch, for nothing.
+  environment:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      name: ${{ steps.find.outputs.name }}
+    steps:
+      - name: Find the GitHub Environment named after the branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "branch" ]; then
+            echo "not a branch: the repository's variables and secrets apply"; exit 0
+          fi
+          enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$REPO/environments/$enc" || echo 000)
+          case "$code" in
+            200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
+                 echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
+            404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
+            *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
+          esac
+
   build:
+    needs: environment
     runs-on: ${{ inputs.runs-on }}
+    environment: ${{ needs.environment.outputs.name }}
     permissions:
       contents: read
       packages: write
+      id-token: write   # deliver-values: the OIDC token Deployyy verifies
     steps:
       - uses: actions/checkout@v4
 
@@ -135,31 +189,14 @@ jobs:
           print(f"tag=sha-{sha7}", file=out)
           EOF
 
-      - name: Write build env
+      - name: The project's variables and secrets
         id: env
-        env:
-          VARS_JSON: ${{ toJSON(vars) }}
-          SECRETS_JSON: ${{ toJSON(secrets) }}
-        run: |
-          python3 - <<'EOF'
-          import json, os, re, shlex
-          vars_ = json.loads(os.environ.get("VARS_JSON") or "{}") or {}
-          secrets = json.loads(os.environ.get("SECRETS_JSON") or "{}") or {}
-          env = {}
-          for k, v in vars_.items():
-              if k.startswith(("NEXT_PUBLIC_", "GC_")):
-                  env[k] = v
-          for k, v in secrets.items():
-              if k.startswith(("NEXT_PUBLIC_", "GC_")):
-                  env[k] = v
-          path = os.path.join(os.environ["RUNNER_TEMP"], "build-env")
-          with open(path, "w") as f:
-              for k in sorted(env):
-                  if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
-                      f.write(f"{k}={shlex.quote(str(env[k]))}\n")
-          print(f"build env: {sorted(env) or 'none'}")
-          print(f"path={path}", file=open(os.environ["GITHUB_OUTPUT"], "a"))
-          EOF
+        uses: ./.platform-recipes/.github/actions/project-values
+        with:
+          vars: ${{ inputs.vars }}
+          secrets: ${{ secrets.all }}
+          job-vars: ${{ toJSON(vars) }}
+          job-secrets: ${{ toJSON(secrets) }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -176,11 +213,11 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: cache-seed
           label: cache-seed
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             NODE_VERSION=${{ steps.resolve.outputs.node }}
             DEPLOYYY_BUILD_ID=${{ github.sha }}
-          secret-files: build-env=${{ steps.env.outputs.path }}
+          secret-files: build-env=${{ steps.env.outputs.build-env }}
           cache-from: type=gha,scope=nextjs
           cache-to: type=gha,scope=nextjs,mode=max,ignore-error=true
 
@@ -191,11 +228,11 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: runtime
           label: runtime
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: |
             NODE_VERSION=${{ steps.resolve.outputs.node }}
             DEPLOYYY_BUILD_ID=${{ github.sha }}
-          secret-files: build-env=${{ steps.env.outputs.path }}
+          secret-files: build-env=${{ steps.env.outputs.build-env }}
           cache-from: type=gha,scope=nextjs
           cache-to: type=gha,scope=nextjs,mode=max,ignore-error=true
 
@@ -210,3 +247,11 @@ jobs:
           docker buildx imagetools create -t "$image:$TAG-cache-seed" "$SEED"
           docker buildx imagetools create -t "$image:$TAG" "$RUNTIME"
           echo "released $image:$TAG (+ $TAG-cache-seed)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The same variables and secrets, for the running server: Deployyy
+      # writes them into this branch's environment. Never fails the build.
+      - name: Deliver variables and secrets to the environment
+        uses: ./.platform-recipes/.github/actions/deliver-values
+        with:
+          values: ${{ steps.env.outputs.values }}
+          platform: ${{ inputs.platform }}

@@ -19,18 +19,35 @@ Install the deployyy GitHub App on your repository:
 The platform then connects your repository and prepares your environments.
 Contact us if your organization is not on the platform yet.
 
-### Step 2 — Add the `COMPOSER_AUTH` secret
+### Step 2 — Put your variables and secrets in GitHub
 
-Add one Actions secret to your repository: `COMPOSER_AUTH`. Its value is
-the content of your `auth.json` (your Magento Marketplace or Packagist
-keys). Composer reads this variable natively.
+GitHub is the only place your project's variables and secrets live. Add them
+under your repository's **Settings → Secrets and variables → Actions**:
+secrets for keys and passwords, variables for everything that may be read
+back (a public address, a feature flag). Each one reaches both the build and
+the running shop — Magento's `config.php` / `env.php` read them with
+`getenv()`.
 
-The platform does not use organization secrets. Your keys stay in your
-repository.
+- **Per environment**: create a GitHub Environment named after the branch
+  (**Settings → Environments**, for example `main` or `staging`) and give it
+  its own variables and secrets. They override the repository's for that
+  branch. A branch without such an Environment uses the repository's values.
+- **Composer credentials**: a secret named `COMPOSER_AUTH` holding the
+  content of your `auth.json` (Magento Marketplace or Packagist keys).
+  Mage-OS on public packages needs none.
+- Changes reach the build and the running shop **with the next build** of the
+  branch: push, or re-run the latest build. A redeploy or rollback without a
+  build keeps the values the last build delivered.
+
+The platform does not use organization secrets of its own, and it does not
+store your values anywhere you have to manage: the console lists their names,
+read-only, and links back here.
 
 ### Step 3 — Add the build workflows
 
-Add two caller workflows to your repository:
+Add two caller workflows to your repository. They hand over every variable
+and secret in one go, without naming any — so they are the same in every
+project, and you never edit them when you add a value:
 
 ```yaml
 # .github/workflows/preview-build.yaml — builds every branch
@@ -44,9 +61,15 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/magento2-build.yml@main
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      id-token: write
+    with:
+      vars: ${{ toJSON(vars) }}
     secrets:
-      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
-      MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+      all: ${{ toJSON(secrets) }}
 ```
 
 ```yaml
@@ -61,16 +84,62 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/magento2-build.yml@main
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      id-token: write
+    with:
+      vars: ${{ toJSON(vars) }}
     secrets:
-      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
-      MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+      all: ${{ toJSON(secrets) }}
 ```
 
-Pass the Composer credentials by name as above, not with `secrets: inherit`:
-GitHub only lets `inherit` reach a reusable workflow in the caller's own
-organization, so a repository outside `ho-nl` would build without them. A secret
-you have not set arrives empty, which is fine for public packages (Mage-OS needs
-none).
+Why this shape:
+
+- `secrets: all: ${{ toJSON(secrets) }}` passes every secret by one declared
+  name, which GitHub allows from any organization. `secrets: inherit` only
+  reaches a reusable workflow in the caller's own organization, so a
+  repository outside `ho-nl` would build without its secrets.
+- `vars` passes every variable the same way.
+- `permissions`: `packages: write` pushes the images, `actions: read` looks up
+  the GitHub Environment named after the branch, and `id-token: write` lets
+  the build prove to Deployyy which repository and branch it is — that is how
+  the values reach the running shop without a stored credential.
+
+What the build does with them: every secret is masked in the log, every
+value becomes an environment variable of the build steps and the BuildKit
+secret `build-env` (a repository `Dockerfile` reads it with
+`RUN --mount=type=secret,id=build-env`), and after a successful build the
+same set is delivered to the branch's environment on Deployyy, where the
+console lists the names only. If Deployyy cannot take them — the branch has
+no environment, the project is not connected — the build says so as a warning
+and does not fail; the environment keeps the values it had.
+
+Limits, honestly:
+
+- A GitHub Environment's values reach the build because the build job runs
+  *in* that Environment. Its protection rules (required reviewers, wait
+  timers, branch rules) therefore apply to the build of that branch.
+- GitHub never shows a secret's value again, so Deployyy only ever receives
+  the values from a build; there is no "sync now" without one.
+- A preview environment that is still being created when its first build
+  finishes is retried for about two minutes; a later environment gets its
+  values from the next build.
+- The calling job (`uses:`) cannot run in a GitHub Environment itself, so
+  `toJSON(secrets)` there carries the repository's and organization's
+  secrets only; the Environment's arrive because the build job inside the
+  central workflow runs in it. That lookup needs `actions: read`.
+- Organization secrets and variables arrive only when the organization
+  grants them to the repository. Builds GitHub runs without secrets — a pull
+  request from a fork, a Dependabot push — build without them and deliver
+  nothing a secret held.
+- Names must be shell-variable shaped (`A_Z0_9`, not starting with a digit);
+  others are left out with a warning. GitHub stores secret names in upper
+  case. A name that is both a variable and a secret is a secret. Names
+  starting with `DEPLOYYY_` are the platform's build settings and do not reach
+  the running shop; names the platform sets for the shop itself (database,
+  cache) keep the platform's value.
 
 ### Step 4 — Push a branch
 
@@ -249,12 +318,20 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/graphcommerce-build.yml@main
-    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      id-token: write
+    with:
+      vars: ${{ toJSON(vars) }}
+    secrets:
+      all: ${{ toJSON(secrets) }}
 ```
 
-`secrets: inherit` hands the build your `GC_*` / `NEXT_PUBLIC_*` secrets only
-when the repository is in the `ho-nl` organization; from any other organization
-put that build input in repository variables instead.
+The hand-off is the same as for Magento (Step 3 above), and so is where your
+values live: GitHub, per repository or per GitHub Environment named after the
+branch.
 
 The workflow builds two images and pushes them to `ghcr.io/<your-repo>`:
 
@@ -276,9 +353,9 @@ Requirements:
   default is 22). The package manager follows your lockfile (npm, Yarn or
   pnpm).
 
-Build-time settings: repository variables named `NEXT_PUBLIC_*` or `GC_*`,
-and secrets named `GC_*` or `NEXT_PUBLIC_*`, are available to `next build`.
-Other variables and secrets are not. Runtime settings come from the platform.
+Settings: every variable and secret of the project is available to `next
+build` (as on Vercel; only `NEXT_PUBLIC_*` ends up in the browser bundle), and
+after the build to the running server in `process.env`.
 
 ### Shared page cache
 
@@ -326,8 +403,15 @@ concurrency:
 jobs:
   build:
     uses: ho-nl/deployyy/.github/workflows/laravel-build.yml@main
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+      id-token: write
+    with:
+      vars: ${{ toJSON(vars) }}
     secrets:
-      COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+      all: ${{ toJSON(secrets) }}
 ```
 
 The PHP version comes from `require.php` in `composer.json` (8.2–8.4). The
@@ -338,7 +422,7 @@ replaces the recipe's file of the same name.
 
 The platform configures the application through environment variables —
 `DB_*`, `REDIS_*`, `APP_URL`, `APP_KEY`, mail and S3 — so do not commit a
-`.env`. Your own variables are managed per environment and win over the
-platform's. Migrations run before a release serves (`php artisan migrate
+`.env`. Your own variables and secrets live in GitHub (repository, or a GitHub
+Environment named after the branch) and win over the platform's. Migrations run before a release serves (`php artisan migrate
 --force` unless the project declares its own release commands); a failed
 migration keeps the previous release online.

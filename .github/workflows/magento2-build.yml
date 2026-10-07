@@ -35,29 +35,42 @@
 #     that chose that version (so a build of another PHP never stands in).
 #     No choice: the tags stay php-fpm-<sha7> + nginx-<sha7>.
 #
-# Secrets: the composer auth.json content as PER-PROJECT secret —
-# COMPOSER_AUTH (preferred name, which the deployyy operator writes from the
-# project's COMPOSER_AUTH variable) or the legacy MAGENTO_AUTH_JSON. Both are
-# optional: with neither the build runs with empty credentials, which is all
-# a Mage-OS project on public repositories needs. Deliberately NOT an org
-# secret: the platform must work for third parties, and a third-party org
-# never has ours. No other setup needed — this repo is public.
+# Variables and secrets: ALL of the project's, never named. The caller passes
+# them in one go, identical for every project (README "Variables and
+# secrets"):
 #
-# The caller passes them EXPLICITLY, not with `secrets: inherit`:
-#
+#   with:
+#     vars: ${{ toJSON(vars) }}
 #   secrets:
-#     COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
-#     MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+#     all: ${{ toJSON(secrets) }}
 #
-# `secrets: inherit` only reaches a reusable workflow in the caller's own
-# organization or enterprise. This one lives in ho-nl, so a project in any
-# other organization (graphcommerce-org/project-catalogreadmodel,
-# deployyy-operator#276) got NO secrets that way — the build said "no
-# COMPOSER_AUTH / MAGENTO_AUTH_JSON configured" although the repository had
-# one. Secrets declared under on.workflow_call.secrets and passed by name
-# work within and across organizations; a secret the caller does not have is
-# passed as an empty string, which is the "not configured" case below.
-# `secrets: inherit` still works for a caller inside ho-nl.
+# That works within and across organizations: `all` is one declared secret,
+# passed by name. (`secrets: inherit` only reaches a reusable workflow in the
+# caller's own organization or enterprise — a project in graphcommerce-org
+# calling this ho-nl workflow got NO secrets that way, deployyy-operator#276.
+# An inherit caller inside ho-nl still works: the job's own secrets context is
+# merged in too.) project-values masks every secret, drops github_token, and
+# makes every key an environment variable of the build steps and the BuildKit
+# secret `build-env`. COMPOSER_AUTH (the content of auth.json; legacy name
+# MAGENTO_AUTH_JSON) simply arrives as one of the keys and becomes auth.json;
+# none is needed for public packages (Mage-OS).
+#
+# Per environment: when the repository has a GitHub Environment named after the
+# branch (`main`, `staging`, ...), the build job runs in it, so its variables
+# and secrets override the repository's (the `environment` job looks it up; a
+# branch without one builds with the repository's values, and no Environment is
+# created). The Environment belongs to the caller's repository, so this works
+# for a caller in any organization. Its protection rules apply to the build.
+#
+# After a successful build the same set goes to Deployyy for this branch's
+# environment (deliver-values), authenticated with the job's Actions OIDC token
+# — no stored credential. The console lists their names only, and the
+# running app reads them with getenv(). Deployyy unreachable or not taking them
+# is a warning, never a failed build; the environment then keeps the values it
+# had. A redeploy or rollback without a build keeps the last delivered values.
+#
+# The caller grants what the jobs ask for (see README):
+#   permissions: { contents: read, packages: write, actions: read, id-token: write }
 
 name: magento2-build
 
@@ -68,22 +81,57 @@ on:
         type: string
         default: ubicloud-standard-16
         description: Runner label (trede 2 of #66 moves this to hosted pools)
-    # Declared so a caller can pass them by name (see the header: inherit does
-    # not cross organizations). Optional: none is needed for public packages.
+      vars:
+        type: string
+        default: "{}"
+        description: "The caller's variables, all of them: toJSON(vars)"
     secrets:
-      COMPOSER_AUTH:
+      all:
         required: false
-        description: Composer auth.json content (preferred)
-      MAGENTO_AUTH_JSON:
-        required: false
-        description: Composer auth.json content (legacy name)
+        description: "The caller's secrets, all of them: toJSON(secrets)"
 
 jobs:
+  # Which GitHub Environment the build runs in: the one named after the branch,
+  # when the repository has it. Looked up rather than assumed, because a job
+  # that names an Environment that does not exist creates it — one per preview
+  # branch, for nothing.
+  environment:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      name: ${{ steps.find.outputs.name }}
+    steps:
+      - name: Find the GitHub Environment named after the branch
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$REF_TYPE" != "branch" ]; then
+            echo "not a branch: the repository's variables and secrets apply"; exit 0
+          fi
+          enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$REPO/environments/$enc" || echo 000)
+          case "$code" in
+            200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
+                 echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
+            404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
+            *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
+          esac
+
   build:
+    needs: environment
     runs-on: ${{ inputs.runs-on }}
+    environment: ${{ needs.environment.outputs.name }}
     permissions:
       contents: read
       packages: write
+      id-token: write   # deliver-values: the OIDC token Deployyy verifies
     steps:
       - uses: actions/checkout@v4
 
@@ -96,11 +144,21 @@ jobs:
             recipes
             .github/actions
 
+      - name: The project's variables and secrets
+        id: values
+        uses: ./.platform-recipes/.github/actions/project-values
+        with:
+          vars: ${{ inputs.vars }}
+          secrets: ${{ secrets.all }}
+          job-vars: ${{ toJSON(vars) }}
+          job-secrets: ${{ toJSON(secrets) }}
+
       - name: Resolve release line, locales and build context
         id: resolve
+        # DEPLOYYY_MAGENTO_LOCALES and DEPLOYYY_PHP
+        # (the platform's settings, written by the operator) are in the
+        # environment already, with the rest of the project's variables.
         env:
-          DEPLOYYY_MAGENTO_LOCALES: ${{ vars.DEPLOYYY_MAGENTO_LOCALES }}
-          DEPLOYYY_PHP: ${{ vars.DEPLOYYY_PHP }}
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 - <<'EOF'
@@ -228,12 +286,11 @@ jobs:
           EOF
 
       - name: Write auth.json
-        env:
-          COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
-          MAGENTO_AUTH_JSON: ${{ secrets.MAGENTO_AUTH_JSON }}
+        # COMPOSER_AUTH (or the legacy MAGENTO_AUTH_JSON) is one of the
+        # project's secrets, exported by project-values like every other key.
         run: |
-          if [ -n "$COMPOSER_AUTH" ]; then echo "$COMPOSER_AUTH" > auth.json
-          elif [ -n "$MAGENTO_AUTH_JSON" ]; then echo "$MAGENTO_AUTH_JSON" > auth.json
+          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > auth.json
+          elif [ -n "${MAGENTO_AUTH_JSON:-}" ]; then printf '%s' "$MAGENTO_AUTH_JSON" > auth.json
           else
             # No credentials configured. That is a VALID state, not a fatal one:
             # a Mage-OS project resolves everything from public repositories
@@ -243,7 +300,7 @@ jobs:
             # naming the package that needs credentials — a better error than
             # refusing to try. An empty auth.json keeps composer's auth
             # plumbing happy without granting anything.
-            echo "no COMPOSER_AUTH / MAGENTO_AUTH_JSON configured — building with empty credentials (public packages only)"
+            echo "no COMPOSER_AUTH among the project's secrets — building with empty credentials (public packages only)"
             echo '{}' > auth.json
           fi
 
@@ -262,7 +319,8 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: php-fpm
           label: php-fpm
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          secret-files: build-env=${{ steps.values.outputs.build-env }}
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
@@ -280,7 +338,8 @@ jobs:
           image: ghcr.io/${{ github.repository }}
           target: nginx
           label: nginx
-          enforce: ${{ vars.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
+          secret-files: build-env=${{ steps.values.outputs.build-env }}
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
@@ -304,3 +363,11 @@ jobs:
           docker buildx imagetools create -t "$image:nginx-$SHA_TAG" "$NGINX_REF"
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
           echo "released $image:php-fpm-$SHA_TAG + nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The same variables and secrets, for the running shop: Deployyy writes
+      # them into this branch's environment. Never fails the build.
+      - name: Deliver variables and secrets to the environment
+        uses: ./.platform-recipes/.github/actions/deliver-values
+        with:
+          values: ${{ steps.values.outputs.values }}
+          platform: magento2

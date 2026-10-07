@@ -111,8 +111,8 @@ What the build does with them: every secret is masked in the log, every
 value becomes an environment variable of the build steps and the BuildKit
 secret `build-env` (a repository `Dockerfile` reads it with
 `RUN --mount=type=secret,id=build-env`), and after a successful build the
-same set is delivered to the branch's environment on Deployyy: variables
-readable, secrets write-only. If Deployyy cannot take them — the branch has
+same set is delivered to the branch's environment on Deployyy, where the
+console lists the names only. If Deployyy cannot take them — the branch has
 no environment, the project is not connected — the build says so as a warning
 and does not fail; the environment keeps the values it had.
 
@@ -126,6 +126,20 @@ Limits, honestly:
 - A preview environment that is still being created when its first build
   finishes is retried for about two minutes; a later environment gets its
   values from the next build.
+- The calling job (`uses:`) cannot run in a GitHub Environment itself, so
+  `toJSON(secrets)` there carries the repository's and organization's
+  secrets only; the Environment's arrive because the build job inside the
+  central workflow runs in it. That lookup needs `actions: read`.
+- Organization secrets and variables arrive only when the organization
+  grants them to the repository. Builds GitHub runs without secrets — a pull
+  request from a fork, a Dependabot push — build without them and deliver
+  nothing a secret held.
+- Names must be shell-variable shaped (`A_Z0_9`, not starting with a digit);
+  others are left out with a warning. GitHub stores secret names in upper
+  case. A name that is both a variable and a secret is a secret. Names
+  starting with `DEPLOYYY_` are the platform's build settings and do not reach
+  the running shop; names the platform sets for the shop itself (database,
+  cache) keep the platform's value.
 
 ### Step 4 — Push a branch
 

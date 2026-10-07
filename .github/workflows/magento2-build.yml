@@ -67,7 +67,7 @@
 #
 # After a successful build the same set goes to Deployyy for this branch's
 # environment (deliver-values), authenticated with the job's Actions OIDC token
-# — no stored credential. Variables arrive plain, secrets write-only, and the
+# — no stored credential. The console lists their names only, and the
 # running app reads them with getenv(). Deployyy unreachable or not taking them
 # is a warning, never a failed build; the environment then keeps the values it
 # had. A redeploy or rollback without a build keeps the last delivered values.

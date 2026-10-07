@@ -2,8 +2,8 @@
 #
 # After a successful build, the same set the build used (project-values) goes
 # to the Deployyy API, which writes it into the environment that runs this
-# branch — the variables the app reads with getenv(). Variables stay readable
-# in the console, secrets are write-only there.
+# branch — the variables the app reads with getenv(). The console shows their
+# names only, read-only, and links back to GitHub.
 #
 # Authenticated with the job's GitHub Actions OIDC token (audience
 # `deployyy`): no stored credential. The job needs `permissions: id-token:

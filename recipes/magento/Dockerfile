@@ -12,8 +12,6 @@
 #                      line supports (the platform's DEPLOYYY_PHP variable).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #                      static-content:deploy (en_US default).
-#   PLATFORM_GRAPHQL_POST_CACHE — 1 (default) adds
-#                      GraphCommerce_GraphQlVarnishPostCache, 0 leaves it out.
 #
 # The known traps of these lines, and where each is handled:
 #   - cache_types follow the INSTALLED modules, not the version: generated
@@ -70,27 +68,7 @@ RUN php .platform/check-patches.php
 # and is enabled in app/etc/config.php, so the project's composer.lock is not touched.
 # A module the project already has, or disabled on purpose in config.php, is left alone.
 #
-# 1. GraphCommerce_GraphQlVarnishPostCache (M11): makes POST /graphql with an
-#    X-Document-ID header cacheable in Varnish — GraphCommerce sends POST. Pinned by
-#    git commit (content-addressed; GitHub tarballs are not byte-stable). Its
-#    config.xml defaults graphql/session/disable to 1, which POST caching needs.
-#    https://github.com/graphcommerce-org/magento2-graphcommerce_graphqlvarnishpostcache
-ARG PLATFORM_GRAPHQL_POST_CACHE=1
-ARG GRAPHQL_POST_CACHE_REPO=https://github.com/graphcommerce-org/magento2-graphcommerce_graphqlvarnishpostcache
-ARG GRAPHQL_POST_CACHE_COMMIT=0954df63d43b983bb2a89014f998e2d990d9a86f
-RUN set -eu; \
-    if [ "$PLATFORM_GRAPHQL_POST_CACHE" != "1" ]; then echo "GraphQL POST cache module: off (build-arg)"; exit 0; fi; \
-    if grep -rqs --include=registration.php "'GraphCommerce_GraphQlVarnishPostCache'" vendor app/code; then \
-      echo "GraphQL POST cache module: the project has it, platform copy not added"; exit 0; fi; \
-    tmp=$(mktemp -d); git -C "$tmp" init -q; \
-    git -C "$tmp" fetch -q --depth 1 "$GRAPHQL_POST_CACHE_REPO" "$GRAPHQL_POST_CACHE_COMMIT"; \
-    test "$(git -C "$tmp" rev-parse FETCH_HEAD)" = "$GRAPHQL_POST_CACHE_COMMIT"; \
-    git -C "$tmp" checkout -q FETCH_HEAD; \
-    mkdir -p app/code/GraphCommerce; \
-    cp -r "$tmp/src/GraphQlVarnishPostCache" app/code/GraphCommerce/GraphQlVarnishPostCache; \
-    rm -rf app/code/GraphCommerce/GraphQlVarnishPostCache/Test "$tmp"; \
-    echo "GraphQL POST cache module: added at $GRAPHQL_POST_CACHE_COMMIT"
-# 2. Deployyy_QueuePoisonPillPk: core declares queue_poison_pill (Magento_MessageQueue)
+# Deployyy_QueuePoisonPillPk: core declares queue_poison_pill (Magento_MessageQueue)
 #    with one column and NO primary key, in every 2.4.x release. Percona/MySQL Group
 #    Replication rejects all DML on a table without a PK, and
 #    Magento\MessageQueue\Setup\Recurring writes to it on every setup:upgrade and cache
@@ -167,7 +145,7 @@ RUN set -eu; \
 # is the project's decision and stays. A config.php without a module list (a project
 # that never ran module:enable) is left alone: Magento cannot compile it either way.
 RUN php -r '$f = "app/etc/config.php"; if (!is_file($f)) exit(0); $c = include $f; if (!isset($c["modules"])) exit(0); \
-      foreach (["GraphCommerce_GraphQlVarnishPostCache" => "app/code/GraphCommerce/GraphQlVarnishPostCache", "Deployyy_QueuePoisonPillPk" => "app/code/Deployyy/QueuePoisonPillPk"] as $m => $d) { \
+      foreach (["Deployyy_QueuePoisonPillPk" => "app/code/Deployyy/QueuePoisonPillPk"] as $m => $d) { \
         if (!is_dir($d)) continue; \
         if (array_key_exists($m, $c["modules"])) { fwrite(STDERR, "$m: config.php says {$c["modules"][$m]}, kept\n"); continue; } \
         $c["modules"][$m] = 1; fwrite(STDERR, "$m: enabled\n"); } \

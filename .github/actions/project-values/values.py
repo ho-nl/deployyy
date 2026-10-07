@@ -49,7 +49,9 @@ def mask(value):
     for candidate in (value, json.dumps(value)[1:-1]):
         for line in candidate.splitlines():
             line = line.strip("\r")
-            if line.strip() and line not in seen:
+            # A line of only punctuation ("{", "},") reveals nothing, and
+            # masking it turns every brace in the log into ***.
+            if any(ch.isalnum() for ch in line) and line not in seen:
                 seen.add(line)
                 print(f"::add-mask::{line}")
 

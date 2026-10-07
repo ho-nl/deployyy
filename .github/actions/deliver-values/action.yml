@@ -37,10 +37,11 @@ inputs:
 runs:
   using: composite
   steps:
-    # PAUSED (2026-10-07): a caller's `toJSON(secrets)` includes every
-    # organization secret the repository may read, and those must not reach a
-    # running app. Delivery stays off until the design decides which secrets
-    # the running app gets; the build itself still receives every value.
-    - name: Deliver variables and secrets to the environment (paused)
+    - name: Deliver variables and secrets to the environment
       shell: bash
-      run: echo "Delivery of GitHub values to the running environment is paused; the environment keeps the values it had."
+      env:
+        VALUES: ${{ inputs.values }}
+        PLATFORM: ${{ inputs.platform }}
+        URL: ${{ inputs.url }}
+        AUDIENCE: ${{ inputs.audience }}
+      run: python3 "$GITHUB_ACTION_PATH/deliver.py"

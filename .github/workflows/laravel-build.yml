@@ -19,8 +19,15 @@
 #     and tagged only when both passed, with SBOM + provenance attestations
 #     (.github/actions/build-scan).
 #
-# Secrets (`secrets: inherit`): COMPOSER_AUTH, optional — public packages
-# need none.
+# Secrets: COMPOSER_AUTH, optional — public packages need none. Pass it
+# explicitly, not with `secrets: inherit`, which only reaches a reusable
+# workflow in the caller's own organization (this one lives in ho-nl):
+#
+#   secrets:
+#     COMPOSER_AUTH: ${{ secrets.COMPOSER_AUTH }}
+#
+# A secret passed by name works within and across organizations, and one the
+# caller does not have arrives empty (built without credentials).
 
 name: laravel-build
 
@@ -31,6 +38,11 @@ on:
         type: string
         default: ubicloud-standard-8
         description: Runner label
+    # Declared so a caller can pass it by name (see the header).
+    secrets:
+      COMPOSER_AUTH:
+        required: false
+        description: Composer auth.json content
 
 jobs:
   build:

@@ -6,6 +6,19 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ## 2026-10-07
 
+### Varnish
+
+- **Your own VCL, from your repository.** Commit `varnish-snippet.vcl` (added
+  to the platform's VCL) or `varnish.vcl` (replaces it) at the root of the
+  repository. The next build of that branch uses it once it compiles; one
+  that does not compile is never used, and the environment's page cache says
+  why.
+- **The Magento recipe no longer adds `GraphCommerce_GraphQlVarnishPostCache`**,
+  and the repository variable `DEPLOYYY_GRAPHQL_POST_CACHE` is gone. A project
+  that wants GraphQL POST requests cached requires the module in its own
+  `composer.json`. The console no longer reports whether GraphQL POST
+  requests are cached.
+
 ### Builds
 
 - **Composer credentials reach builds from any GitHub organization.** The

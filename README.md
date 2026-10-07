@@ -104,19 +104,23 @@ holds your project configuration:
 To change your configuration, contact the platform team. A dashboard for
 self-service configuration is planned.
 
-### GraphQL POST cache (Magento)
+### Varnish VCL (Magento)
 
-GraphCommerce sends its GraphQL queries as POST requests. The Magento recipe
-adds [`GraphCommerce_GraphQlVarnishPostCache`](https://github.com/graphcommerce-org/magento2-graphcommerce_graphqlvarnishpostcache),
-so Varnish caches a POST `/graphql` request that has an `X-Document-ID`
-header. The module also sets `graphql/session/disable` to `1` by default,
-which POST caching needs. The build adds the module to `app/code` and
-enables it in `app/etc/config.php`; your `composer.lock` does not change.
+The page cache runs the platform's VCL. To change it, commit a file at the
+root of your repository:
 
-- A project that already has the module keeps its own copy.
-- A project whose `config.php` disables the module keeps it disabled.
-- To leave the module out, set the repository variable
-  `DEPLOYYY_GRAPHQL_POST_CACHE` to `0`.
+- `varnish-snippet.vcl` is added to the platform's VCL. A `sub vcl_recv { … }`
+  there runs before the platform's and falls through to it.
+- `varnish.vcl` replaces the platform's VCL. Its backend is host
+  `magento-web`, port `8080`, and its purge ACL must admit `10.0.0.0/8`,
+  `172.16.0.0/12` and `192.168.0.0/16`.
+
+The recipes copy the file into the image with the rest of the repository. The
+platform reads it from the build an environment serves and compiles it with
+the same Varnish first. A VCL that does not compile is never used: the one
+before it keeps serving, and the console says why. The recipes add no Varnish
+or GraphQL module to your project; caching behaviour that needs a Magento
+module is the project's own choice, in its `composer.json`.
 
 ## How the build works
 

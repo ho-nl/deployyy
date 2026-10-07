@@ -18,6 +18,8 @@ WAIT = 20
 
 
 def warn(message):
+    # Deployyy's own sentences end in a full stop already; say it once.
+    message = message.rstrip(" .") + "."
     print(f"::warning title=Variables not delivered::{message} The environment keeps the values it had.")
     sys.exit(0)
 

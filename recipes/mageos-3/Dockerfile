@@ -8,8 +8,9 @@
 # eigen Dockerfile") is over for repos on the caller flow.
 #
 # Per-project knobs arrive as build-args (the workflow resolves them):
-#   PHP_VERSION      — 8.4 (the line's default) or 8.3, the project's choice
-#   (the platform's DEPLOYYY_PHP variable; Magento 2.4.9 supports both).
+#   PHP_VERSION      — 8.4 (the line's default), 8.5 or 8.3, the project's choice
+#   (the platform's DEPLOYYY_PHP variable; Magento 2.4.9 supports all three;
+#   8.5 waits for its live trial before the platform offers it).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #   static-content:deploy (from deployyy.json .build.locales; en_US default).
 ARG PHP_VERSION=8.4

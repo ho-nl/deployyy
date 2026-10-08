@@ -19,9 +19,11 @@
 #       secrets:
 #         all: ${{ toJSON(secrets) }}
 #
-# Build input such as GC_MAGENTO_ENDPOINT (when graphcommerce.config.js does
-# not set it) is a repository variable or secret like any other; it reaches
-# `next build` and, after the build, the running storefront.
+# Build input is a repository variable or secret like any other; it reaches
+# `next build` and, after the build, the running storefront. The one exception
+# is GC_MAGENTO_ENDPOINT on a Deployyy project with a paired Magento backend:
+# the platform publishes each branch's backend in DEPLOYYY_GC_MAGENTO_ENDPOINTS,
+# and nextjs-build.yml builds the branch against it (see there).
 
 name: graphcommerce-build
 
@@ -43,11 +45,8 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: read
-      packages: write
-      actions: read
-      id-token: write
+    # No permissions here: nextjs-build.yml takes the caller's grants (see
+    # magento2-build.yml), so a caller that grants less still starts.
     uses: ho-nl/deployyy/.github/workflows/nextjs-build.yml@main
     with:
       runs-on: ${{ inputs.runs-on }}

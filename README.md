@@ -106,6 +106,13 @@ Why this shape:
   the GitHub Environment named after the branch, and `id-token: write` lets
   the build prove to Deployyy which repository and branch it is — that is how
   the values reach the running shop without a stored credential.
+- The central jobs ask for no permissions of their own: they take what the
+  caller grants. A caller that grants less still builds, and the build log
+  names the missing grant as a warning (`actions: read`: no per-branch
+  GitHub Environment; `id-token: write`: no values delivered). A caller from
+  before 2026-10-07 (`secrets: inherit`, or `COMPOSER_AUTH` by name, no
+  `permissions`) builds the same way, with a warning that shows the lines
+  above to put in its place.
 
 What the build does with them: every secret is masked in the log, every
 value becomes an environment variable of the build steps and the BuildKit
@@ -163,6 +170,8 @@ holds your project configuration:
   `DEPLOYYY_PHP`, and the build tags its images with the version
   (`php-fpm-8.3-<sha7>`). After you change it, push or re-run the latest
   build: the environment keeps its current build until the new one exists.
+  PHP 8.5 (Adobe's tested version for 2.4.9 and Mage-OS 3) builds on those
+  lines, but the console offers it only after its live trial.
   If your repository has its own `Dockerfile`, it receives the version as the
   `PHP_VERSION` build argument.
 - The static-content locales come from the repository variable
@@ -172,6 +181,28 @@ holds your project configuration:
 
 To change your configuration, contact the platform team. A dashboard for
 self-service configuration is planned.
+
+### Application in a subfolder (monorepo)
+
+Your application does not have to be at the root of the repository. When it
+lives in a folder, say `src` or `apps/web`, the project's root directory names
+that folder. The platform finds it when you connect a repository whose root
+holds no application (it looks one folder down), and sets the repository
+variable `DEPLOYYY_ROOT_DIR` from it. Do not edit the variable by hand: the
+platform converges it, and deletes it when the application is at the root.
+
+The build then reads everything from that folder: `composer.json` and
+`composer.lock`, `package.json`, `.nvmrc` / `.node-version`, your
+`Dockerfile`, `.platform/`, `deployyy.json`, `patches/`, `.trivyignore` and
+the Varnish VCL files. The folder is the docker build context, so nothing
+above it reaches the image. Wherever this README says "the root of your
+repository", read "the application's folder". Your caller workflow does not
+change.
+
+The folder must be a relative path inside the repository (no leading `/`, no
+`.` or `..`), must exist in the commit being built and must not be a
+symbolic link. Otherwise the build stops and says which rule it broke. Unset
+or empty is the repository root, exactly as before.
 
 ### Varnish VCL (Magento)
 
@@ -235,8 +266,8 @@ module is the project's own choice, in its `composer.json`.
 
 | Line | Dir | PHP | Status |
 |---|---|---|---|
-| `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4 | ✅ validated live (3.2.0, 3.4.0) |
-| `magento-249` (Magento Open Source 2.4.9) | [`recipes/magento/`](recipes/magento/) | 8.4 | 🟡 image builds and starts; not validated live |
+| `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4 (8.5: not validated yet) | ✅ validated live (3.2.0, 3.4.0) on 8.4 |
+| `magento-249` (Magento Open Source 2.4.9) | [`recipes/magento/`](recipes/magento/) | 8.4 (8.5: not validated yet) | 🟡 image builds and starts; not validated live |
 | `magento-248` (2.4.8) | [`recipes/magento/`](recipes/magento/) | 8.4 | 🟡 image builds and starts; not validated live |
 | `magento-247` (2.4.7) | [`recipes/magento/`](recipes/magento/) | 8.3 | 🟡 image builds and starts; not validated live |
 | `magento-246` (2.4.6) | [`recipes/magento/`](recipes/magento/) | 8.2 | 🟡 image builds and starts; not validated live |
@@ -356,6 +387,21 @@ Requirements:
 Settings: every variable and secret of the project is available to `next
 build` (as on Vercel; only `NEXT_PUBLIC_*` ends up in the browser bundle), and
 after the build to the running server in `process.env`.
+
+### The Magento backend a storefront is built against
+
+A GraphCommerce storefront that is paired with a Magento project on the
+platform is built against that project's environment for the branch: the one
+of the same branch, else the one of the branch your pull request merges into
+(and so on up to the main branch), else the Magento project's main branch. The
+platform sets the repository variable `DEPLOYYY_GC_MAGENTO_ENDPOINTS` (each
+branch's endpoint, as JSON), and the build uses the branch's entry as
+`GC_MAGENTO_ENDPOINT`, in place of `magentoEndpoint` in
+`graphcommerce.config.js` and of a `GC_MAGENTO_ENDPOINT` variable of your own.
+Before it builds, it waits up to 10 minutes for that endpoint to answer, which
+also wakes a sleeping preview. Do not edit the variable by hand: the platform
+converges it. Without it (a storefront with no paired Magento project), your
+own value is used, as before.
 
 ### Shared page cache
 

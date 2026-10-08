@@ -4,6 +4,52 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-08
+
+### Builds
+
+- **A storefront is built against its own Magento backend.** A GraphCommerce
+  build used the Magento endpoint written in the repository, which could be
+  any old backend. A storefront paired with a Magento project on the platform
+  is now built against that project's environment for the branch: the same
+  branch, else the branch the pull request merges into, else the Magento
+  project's main branch. The platform publishes it as the repository variable
+  `DEPLOYYY_GC_MAGENTO_ENDPOINTS`, and `nextjs-build.yml` builds with the
+  branch's entry as `GC_MAGENTO_ENDPOINT` and waits for it to answer first,
+  which wakes a sleeping preview. Builds made by Deployyy do the same. Caller
+  workflows need no change (README, "The Magento backend a storefront is
+  built against").
+
+- **Build an application that lives in a subfolder.** A repository whose
+  application is in `src`, `apps/web` or another folder builds from that
+  folder: the platform sets the repository variable `DEPLOYYY_ROOT_DIR` from
+  the project's root directory, and the Magento, Laravel, Next.js and
+  GraphCommerce builds read `composer.json`, `package.json`, the
+  `Dockerfile`, `.platform/` and the rest from there and use it as the build
+  context. Connecting a repository whose root holds no application now finds
+  the application one folder down. Nothing changes for a repository without
+  the variable, and caller workflows need no change (README, "Application in
+  a subfolder").
+
+- **A caller workflow from before 2026-10-07 builds again.** The central
+  build asked for `actions: read` and `id-token: write` itself, and GitHub
+  does not start a reusable workflow that asks for more than its caller
+  grants: a branch with the old `secrets: inherit` caller ended in
+  `startup_failure`, without a log to say why. The central jobs now take the
+  caller's grants, and the named `COMPOSER_AUTH` / `MAGENTO_AUTH_JSON` secrets
+  are declared again, so an old caller builds and its log says what to change
+  (the caller in Step 3 of the README). A missing `actions: read` or
+  `id-token: write` is a warning that names it.
+
+### Service stack
+
+- **New Magento 2.4.9 and Mage-OS 3 projects get Adobe's tested stack:**
+  RabbitMQ 4.3 and Valkey 9 (with MariaDB 12 and OpenSearch 3). These are
+  now the only queue and cache versions offered for those lines. Existing
+  projects keep the versions they run.
+- **PHP 8.5** builds on 2.4.9 and Mage-OS 3, but you cannot choose it yet:
+  the console offers it after its live trial. PHP 8.4 stays the default.
+
 ## 2026-10-07
 
 ### Varnish

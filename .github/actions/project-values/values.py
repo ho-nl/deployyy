@@ -117,6 +117,19 @@ if os.environ.get("EXPORT", "true") == "true" and os.environ.get("GITHUB_ENV"):
             out.write(f"{key}<<{delimiter}\n{merged[key]}\n{delimiter}\n")
             exported.append(key)
 
+# A caller that passes `all` always hands over at least its github_token, so
+# an empty one is a caller from before 2026-10-07: `secrets: inherit`, or
+# COMPOSER_AUTH by name. It still builds with what the job sees; say what to
+# change, because across organizations such a caller passes no secrets.
+if not os.environ.get("IN_SECRETS", "").strip():
+    print(
+        "::warning title=Update the build workflow::This build was called the previous way "
+        "(`secrets: inherit` or named secrets). Call it with `with: vars: ${{ toJSON(vars) }}` "
+        "and `secrets: all: ${{ toJSON(secrets) }}`, and grant `permissions: contents: read, "
+        "packages: write, actions: read, id-token: write` (README, Step 3). Until then only the "
+        "secrets this job can see reach the build."
+    )
+
 print(f"variables: {', '.join(sorted(variables)) or 'none'}")
 print(f"secrets:   {', '.join(sorted(secrets)) or 'none'} (values masked)")
 if skipped:

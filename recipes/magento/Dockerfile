@@ -9,7 +9,8 @@
 # Build-args (the workflow resolves them):
 #   PHP_VERSION      — the line's default, 8.2 (2.4.6), 8.3 (2.4.7), 8.4 (2.4.8,
 #                      2.4.9), or the project's choice among the versions the
-#                      line supports (the platform's DEPLOYYY_PHP variable).
+#                      line supports (the platform's DEPLOYYY_PHP variable;
+#                      8.5 on 2.4.9 once the platform offers it).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #                      static-content:deploy (en_US default).
 #

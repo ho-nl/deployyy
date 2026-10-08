@@ -8,6 +8,18 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Builds
 
+- **A storefront is built against its own Magento backend.** A GraphCommerce
+  build used the Magento endpoint written in the repository, which could be
+  any old backend. A storefront paired with a Magento project on the platform
+  is now built against that project's environment for the branch: the same
+  branch, else the branch the pull request merges into, else the Magento
+  project's main branch. The platform publishes it as the repository variable
+  `DEPLOYYY_GC_MAGENTO_ENDPOINTS`, and `nextjs-build.yml` builds with the
+  branch's entry as `GC_MAGENTO_ENDPOINT` and waits for it to answer first,
+  which wakes a sleeping preview. Builds made by Deployyy do the same. Caller
+  workflows need no change (README, "The Magento backend a storefront is
+  built against").
+
 - **Build an application that lives in a subfolder.** A repository whose
   application is in `src`, `apps/web` or another folder builds from that
   folder: the platform sets the repository variable `DEPLOYYY_ROOT_DIR` from

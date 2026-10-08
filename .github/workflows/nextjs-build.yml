@@ -130,6 +130,71 @@ jobs:
           job-vars: ${{ toJSON(vars) }}
           job-secrets: ${{ toJSON(secrets) }}
 
+      # A GraphCommerce storefront is built against its paired Magento
+      # backend: the build introspects that backend's GraphQL schema and bakes
+      # its endpoint into the bundle. The deployyy operator publishes every
+      # branch's backend as the repository variable
+      # DEPLOYYY_GC_MAGENTO_ENDPOINTS (JSON: branch -> GraphQL endpoint, "*"
+      # for a branch without an environment). This branch's entry becomes
+      # GC_MAGENTO_ENDPOINT for the build, in place of the project's own value
+      # and graphcommerce.config.js, and the build first waits until it
+      # answers, which also wakes a sleeping preview. Unset: nothing changes.
+      - name: Paired Magento backend
+        if: env.DEPLOYYY_GC_MAGENTO_ENDPOINTS != ''
+        env:
+          BUILD_ENV_FILE: ${{ steps.env.outputs.build-env }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, shlex, sys, time, urllib.error, urllib.request
+
+          try:
+              pairs = json.loads(os.environ["DEPLOYYY_GC_MAGENTO_ENDPOINTS"])
+          except ValueError:
+              print("::warning::DEPLOYYY_GC_MAGENTO_ENDPOINTS is not JSON; building with the project's own Magento endpoint")
+              sys.exit(0)
+          branch = os.environ["BRANCH"]
+          endpoint = (pairs.get(branch) or pairs.get("*")) if isinstance(pairs, dict) else None
+          if not endpoint:
+              print(f"no paired Magento backend for {branch}: building with the project's own endpoint")
+              sys.exit(0)
+          if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?", endpoint):
+              raise SystemExit(f"::error title=Magento backend::DEPLOYYY_GC_MAGENTO_ENDPOINTS names {endpoint!r} for {branch}, which is not an endpoint URL")
+          print(f"Magento backend: {endpoint} (GC_MAGENTO_ENDPOINT)")
+
+          # The build env file is sourced line by line: a later assignment wins.
+          with open(os.environ["BUILD_ENV_FILE"], "a") as out:
+              out.write(f"GC_MAGENTO_ENDPOINT={shlex.quote(endpoint)}\n")
+          with open(os.environ["GITHUB_ENV"], "a") as out:
+              out.write(f"GC_MAGENTO_ENDPOINT={endpoint}\n")
+
+          # Wait for it to answer GraphQL: a sleeping preview answers with a
+          # wake page first, and the request is what wakes it.
+          deadline = time.time() + 600
+          last = ""
+          while True:
+              req = urllib.request.Request(endpoint, data=b'{"query":"{__typename}"}', method="POST",
+                  headers={"Content-Type": "application/json", "Accept": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      last = f"HTTP {resp.status}, not a GraphQL answer"
+                      try:
+                          body = json.loads(resp.read(1 << 20) or b"{}")
+                      except ValueError:
+                          body = None
+                      if isinstance(body, dict) and body.get("data"):
+                          print("Magento backend answers GraphQL")
+                          break
+              except urllib.error.HTTPError as e:
+                  last = f"HTTP {e.code}"
+              except (urllib.error.URLError, OSError) as e:
+                  last = str(getattr(e, "reason", e))
+              if time.time() > deadline:
+                  raise SystemExit(f"::error title=Magento backend::The storefront is built against {endpoint}, which did not answer GraphQL within 10 minutes ({last}). Check that its environment is running, then build again.")
+              print(f"waiting for the Magento backend ({last})")
+              time.sleep(10)
+          EOF
+
       - name: Application directory
         id: root
         # DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's

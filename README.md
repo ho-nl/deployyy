@@ -388,6 +388,21 @@ Settings: every variable and secret of the project is available to `next
 build` (as on Vercel; only `NEXT_PUBLIC_*` ends up in the browser bundle), and
 after the build to the running server in `process.env`.
 
+### The Magento backend a storefront is built against
+
+A GraphCommerce storefront that is paired with a Magento project on the
+platform is built against that project's environment for the branch: the one
+of the same branch, else the one of the branch your pull request merges into
+(and so on up to the main branch), else the Magento project's main branch. The
+platform sets the repository variable `DEPLOYYY_GC_MAGENTO_ENDPOINTS` (each
+branch's endpoint, as JSON), and the build uses the branch's entry as
+`GC_MAGENTO_ENDPOINT`, in place of `magentoEndpoint` in
+`graphcommerce.config.js` and of a `GC_MAGENTO_ENDPOINT` variable of your own.
+Before it builds, it waits up to 10 minutes for that endpoint to answer, which
+also wakes a sleeping preview. Do not edit the variable by hand: the platform
+converges it. Without it (a storefront with no paired Magento project), your
+own value is used, as before.
+
 ### Shared page cache
 
 Your project carries no cache code and no cache configuration. The build

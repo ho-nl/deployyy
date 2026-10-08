@@ -188,9 +188,17 @@ jobs:
               # core, same service versions — 3.1/3.2/3.3/3.4 verified),
               # so the match is MAJOR-level. A core change comes as a new
               # major, which simply has no recipe until validated.
-              ("mage-os/product-community-edition", "3.", "mageos-3", "mageos-3", ["8.4", "8.3"]),
+              #
+              # PHP 8.5 on 2.4.9 / Mage-OS 3 (Adobe's tested version for the
+              # line; Paul, 2026-10-08): accepted as a choice ahead of the
+              # catalog, so its live trial can run; the catalog does not
+              # offer it yet. TODO(php-8.5): after the trial, make 8.5 the
+              # default here, in the operator and in the catalog together,
+              # and drop 8.3. Every project that chose no version follows the
+              # default (deployyy-operator docs/PHP-VERSIONS.md "PHP 8.5").
+              ("mage-os/product-community-edition", "3.", "mageos-3", "mageos-3", ["8.4", "8.5", "8.3"]),
               # Magento Open Source: one recipe, PHP per line.
-              ("magento/product-community-edition", "2.4.9", "magento-249", "magento", ["8.4", "8.3"]),
+              ("magento/product-community-edition", "2.4.9", "magento-249", "magento", ["8.4", "8.5", "8.3"]),
               ("magento/product-community-edition", "2.4.8", "magento-248", "magento", ["8.4", "8.3"]),
               ("magento/product-community-edition", "2.4.7", "magento-247", "magento", ["8.3", "8.2"]),
               ("magento/product-community-edition", "2.4.6", "magento-246", "magento", ["8.2", "8.1"]),

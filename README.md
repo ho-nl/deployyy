@@ -170,6 +170,8 @@ holds your project configuration:
   `DEPLOYYY_PHP`, and the build tags its images with the version
   (`php-fpm-8.3-<sha7>`). After you change it, push or re-run the latest
   build: the environment keeps its current build until the new one exists.
+  PHP 8.5 (Adobe's tested version for 2.4.9 and Mage-OS 3) builds on those
+  lines, but the console offers it only after its live trial.
   If your repository has its own `Dockerfile`, it receives the version as the
   `PHP_VERSION` build argument.
 - The static-content locales come from the repository variable
@@ -242,8 +244,8 @@ module is the project's own choice, in its `composer.json`.
 
 | Line | Dir | PHP | Status |
 |---|---|---|---|
-| `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4 | ✅ validated live (3.2.0, 3.4.0) |
-| `magento-249` (Magento Open Source 2.4.9) | [`recipes/magento/`](recipes/magento/) | 8.4 | 🟡 image builds and starts; not validated live |
+| `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4 (8.5: not validated yet) | ✅ validated live (3.2.0, 3.4.0) on 8.4 |
+| `magento-249` (Magento Open Source 2.4.9) | [`recipes/magento/`](recipes/magento/) | 8.4 (8.5: not validated yet) | 🟡 image builds and starts; not validated live |
 | `magento-248` (2.4.8) | [`recipes/magento/`](recipes/magento/) | 8.4 | 🟡 image builds and starts; not validated live |
 | `magento-247` (2.4.7) | [`recipes/magento/`](recipes/magento/) | 8.3 | 🟡 image builds and starts; not validated live |
 | `magento-246` (2.4.6) | [`recipes/magento/`](recipes/magento/) | 8.2 | 🟡 image builds and starts; not validated live |

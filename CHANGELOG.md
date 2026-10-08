@@ -18,6 +18,15 @@ platform API, and through the MCP tools, unless an entry says otherwise.
   (the caller in Step 3 of the README). A missing `actions: read` or
   `id-token: write` is a warning that names it.
 
+### Service stack
+
+- **New Magento 2.4.9 and Mage-OS 3 projects get Adobe's tested stack:**
+  RabbitMQ 4.3 and Valkey 9 (with MariaDB 12 and OpenSearch 3). These are
+  now the only queue and cache versions offered for those lines. Existing
+  projects keep the versions they run.
+- **PHP 8.5** builds on 2.4.9 and Mage-OS 3, but you cannot choose it yet:
+  the console offers it after its live trial. PHP 8.4 stays the default.
+
 ## 2026-10-07
 
 ### Varnish

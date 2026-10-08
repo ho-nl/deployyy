@@ -4,6 +4,20 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-08
+
+### Builds
+
+- **A caller workflow from before 2026-10-07 builds again.** The central
+  build asked for `actions: read` and `id-token: write` itself, and GitHub
+  does not start a reusable workflow that asks for more than its caller
+  grants: a branch with the old `secrets: inherit` caller ended in
+  `startup_failure`, without a log to say why. The central jobs now take the
+  caller's grants, and the named `COMPOSER_AUTH` / `MAGENTO_AUTH_JSON` secrets
+  are declared again, so an old caller builds and its log says what to change
+  (the caller in Step 3 of the README). A missing `actions: read` or
+  `id-token: write` is a warning that names it.
+
 ## 2026-10-07
 
 ### Varnish

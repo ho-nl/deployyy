@@ -43,11 +43,8 @@ on:
 
 jobs:
   build:
-    permissions:
-      contents: read
-      packages: write
-      actions: read
-      id-token: write
+    # No permissions here: nextjs-build.yml takes the caller's grants (see
+    # magento2-build.yml), so a caller that grants less still starts.
     uses: ho-nl/deployyy/.github/workflows/nextjs-build.yml@main
     with:
       runs-on: ${{ inputs.runs-on }}

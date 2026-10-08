@@ -37,6 +37,10 @@
 # overrides the repository's values. After a successful build the set goes to
 # Deployyy for this branch's environment (deliver-values, OIDC, never fails
 # the build), where the running server reads it from process.env.
+#
+# Permissions: the jobs declare none and take the caller's grants, as
+# magento2-build.yml explains, so a caller from before 2026-10-07 still builds
+# and is told what to change.
 
 name: nextjs-build
 
@@ -67,8 +71,6 @@ jobs:
   # branch, for nothing.
   environment:
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
     outputs:
       name: ${{ steps.find.outputs.name }}
     steps:
@@ -91,6 +93,7 @@ jobs:
             200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
                  echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
             404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
+            403) echo "::warning title=Grant actions: read::The calling workflow does not grant \`actions: read\`, so the build cannot look for a GitHub Environment named \"$BRANCH\" and uses the repository's variables and secrets. Add \`actions: read\` to the caller's \`permissions\` (README, Step 3)." ;;
             *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
           esac
 
@@ -98,10 +101,6 @@ jobs:
     needs: environment
     runs-on: ${{ inputs.runs-on }}
     environment: ${{ needs.environment.outputs.name }}
-    permissions:
-      contents: read
-      packages: write
-      id-token: write   # deliver-values: the OIDC token Deployyy verifies
     steps:
       - uses: actions/checkout@v4
 

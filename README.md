@@ -106,6 +106,13 @@ Why this shape:
   the GitHub Environment named after the branch, and `id-token: write` lets
   the build prove to Deployyy which repository and branch it is — that is how
   the values reach the running shop without a stored credential.
+- The central jobs ask for no permissions of their own: they take what the
+  caller grants. A caller that grants less still builds, and the build log
+  names the missing grant as a warning (`actions: read`: no per-branch
+  GitHub Environment; `id-token: write`: no values delivered). A caller from
+  before 2026-10-07 (`secrets: inherit`, or `COMPOSER_AUTH` by name, no
+  `permissions`) builds the same way, with a warning that shows the lines
+  above to put in its place.
 
 What the build does with them: every secret is masked in the log, every
 value becomes an environment variable of the build steps and the BuildKit

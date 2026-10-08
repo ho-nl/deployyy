@@ -182,6 +182,28 @@ holds your project configuration:
 To change your configuration, contact the platform team. A dashboard for
 self-service configuration is planned.
 
+### Application in a subfolder (monorepo)
+
+Your application does not have to be at the root of the repository. When it
+lives in a folder, say `src` or `apps/web`, the project's root directory names
+that folder. The platform finds it when you connect a repository whose root
+holds no application (it looks one folder down), and sets the repository
+variable `DEPLOYYY_ROOT_DIR` from it. Do not edit the variable by hand: the
+platform converges it, and deletes it when the application is at the root.
+
+The build then reads everything from that folder: `composer.json` and
+`composer.lock`, `package.json`, `.nvmrc` / `.node-version`, your
+`Dockerfile`, `.platform/`, `deployyy.json`, `patches/`, `.trivyignore` and
+the Varnish VCL files. The folder is the docker build context, so nothing
+above it reaches the image. Wherever this README says "the root of your
+repository", read "the application's folder". Your caller workflow does not
+change.
+
+The folder must be a relative path inside the repository (no leading `/`, no
+`.` or `..`), must exist in the commit being built and must not be a
+symbolic link. Otherwise the build stops and says which rule it broke. Unset
+or empty is the repository root, exactly as before.
+
 ### Varnish VCL (Magento)
 
 The page cache runs the platform's VCL. To change it, commit a file at the

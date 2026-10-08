@@ -18,6 +18,11 @@
 #     Actions variable DEPLOYYY_MAGENTO_LOCALES (set by the deployyy operator
 #     from the app configuration). Default en_US. A deployyy.json
 #     .build.locales list is a transitional fallback only.
+#   - The APPLICATION DIRECTORY comes from the repository Actions variable
+#     DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's root
+#     directory), e.g. `src`. composer.json, the Dockerfile, .platform/,
+#     deployyy.json, auth.json and patches/ are read there, and it is the
+#     docker build context. Unset: the repository root.
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>
 #     — the exact commit-keyed tags the operator verifies before deploying.
 #     Both are pushed by digest first, scanned (trivy: a fixable CRITICAL
@@ -162,13 +167,46 @@ jobs:
           job-vars: ${{ toJSON(vars) }}
           job-secrets: ${{ toJSON(secrets) }}
 
+      - name: Application directory
+        id: root
+        # DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's
+        # root directory) is in the environment with the project's variables.
+        # Unset or empty: the repository root, as before it existed.
+        run: |
+          dir="${DEPLOYYY_ROOT_DIR:-}"
+          if [ -z "$dir" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          fail() { echo "::error title=DEPLOYYY_ROOT_DIR::$1"; exit 1; }
+          [[ "$dir" =~ ^[A-Za-z0-9_.@+/-]+$ ]] ||
+            fail "The repository variable DEPLOYYY_ROOT_DIR may contain only letters, digits, / and _ . @ + -; give a path inside the repository, like src"
+          case "$dir" in
+            /*) fail "DEPLOYYY_ROOT_DIR=$dir starts with /; give a path inside the repository, like src" ;;
+            */ | *//*) fail "DEPLOYYY_ROOT_DIR=$dir has an empty segment; give a path inside the repository, like src" ;;
+          esac
+          IFS=/ read -ra parts <<< "$dir"
+          path=""
+          for part in "${parts[@]}"; do
+            case "$part" in
+              . | ..) fail "DEPLOYYY_ROOT_DIR=$dir has a . or .. segment; give a path inside the repository, like src" ;;
+            esac
+            path="${path:+$path/}$part"
+            [ -L "$path" ] && fail "DEPLOYYY_ROOT_DIR=$dir: $path is a symbolic link; give the directory itself"
+            [ -d "$path" ] || fail "DEPLOYYY_ROOT_DIR=$dir: there is no directory $path in this commit"
+          done
+          echo "the application is in $dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
       - name: Resolve release line, locales and build context
         id: resolve
         # DEPLOYYY_MAGENTO_LOCALES and DEPLOYYY_PHP
         # (the platform's settings, written by the operator) are in the
         # environment already, with the rest of the project's variables.
+        working-directory: ${{ steps.root.outputs.dir }}
         env:
           BRANCH: ${{ github.ref_name }}
+          RECIPES: ${{ github.workspace }}/.platform-recipes/recipes
         run: |
           python3 - <<'EOF'
           import datetime, json, os, pathlib, shutil, sys
@@ -235,11 +273,11 @@ jobs:
           # Escape hatch FIRST: a repo-local Dockerfile wins wholesale, and a
           # line without a platform recipe is fine as long as the repo builds
           # itself (the demo ladder ships a Dockerfile per version branch).
-          recipe = pathlib.Path(".platform-recipes/recipes") / recipe_id
+          recipe = pathlib.Path(os.environ["RECIPES"]) / recipe_id
           local_dockerfile = pathlib.Path("Dockerfile").exists()
           if not recipe.is_dir():
               if not local_dockerfile:
-                  have = sorted(p.name for p in pathlib.Path(".platform-recipes/recipes").iterdir() if p.is_dir())
+                  have = sorted(p.name for p in pathlib.Path(os.environ["RECIPES"]).iterdir() if p.is_dir())
                   sys.exit(f"FATAL: line {line} resolved but its recipe {recipe_id} is missing "
                            f"(recipes exist for: {have}). Add it in deployyy recipes/{recipe_id}/ "
                            f"or ship a repo-local Dockerfile.")
@@ -305,6 +343,7 @@ jobs:
       - name: Write auth.json
         # COMPOSER_AUTH (or the legacy MAGENTO_AUTH_JSON) is one of the
         # project's secrets, exported by project-values like every other key.
+        working-directory: ${{ steps.root.outputs.dir }}
         run: |
           if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > auth.json
           elif [ -n "${MAGENTO_AUTH_JSON:-}" ]; then printf '%s' "$MAGENTO_AUTH_JSON" > auth.json
@@ -334,6 +373,7 @@ jobs:
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
           image: ghcr.io/${{ github.repository }}
+          context: ${{ steps.root.outputs.dir }}
           target: php-fpm
           label: php-fpm
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
@@ -353,6 +393,7 @@ jobs:
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
           image: ghcr.io/${{ github.repository }}
+          context: ${{ steps.root.outputs.dir }}
           target: nginx
           label: nginx
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}

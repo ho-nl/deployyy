@@ -8,6 +8,17 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Builds
 
+- **Build an application that lives in a subfolder.** A repository whose
+  application is in `src`, `apps/web` or another folder builds from that
+  folder: the platform sets the repository variable `DEPLOYYY_ROOT_DIR` from
+  the project's root directory, and the Magento, Laravel, Next.js and
+  GraphCommerce builds read `composer.json`, `package.json`, the
+  `Dockerfile`, `.platform/` and the rest from there and use it as the build
+  context. Connecting a repository whose root holds no application now finds
+  the application one folder down. Nothing changes for a repository without
+  the variable, and caller workflows need no change (README, "Application in
+  a subfolder").
+
 - **A caller workflow from before 2026-10-07 builds again.** The central
   build asked for `actions: read` and `id-token: write` itself, and GitHub
   does not start a reusable workflow that asks for more than its caller

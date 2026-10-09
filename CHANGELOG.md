@@ -4,6 +4,21 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-09
+
+### Builds
+
+- **Several applications in one repository.** A repository may hold a Magento
+  in one folder and its GraphCommerce storefront in another, each a project of
+  its own. The platform then sets the repository variable `DEPLOYYY_APPS`
+  (each application's folder, image and settings) in place of the single
+  build variables, and each build workflow builds the applications of its
+  kind, one job per application. A push builds only the applications whose
+  folder changed; the others re-use the release of the push before under the
+  new commit's tags. A manual run builds everything. Caller workflows need no
+  change, and a repository with one application builds exactly as before
+  (README, "Several applications in one repository").
+
 ## 2026-10-08
 
 ### Builds

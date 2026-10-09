@@ -1,0 +1,63 @@
+# Which applications of the calling repository this workflow builds, and how.
+#
+# A repository usually holds one application, and then nothing here changes
+# anything: the answer is one job, `build`, that reads the repository's own
+# variables exactly as before (DEPLOYYY_ROOT_DIR, DEPLOYYY_PHP, ...).
+#
+# A repository may hold several, each in its own folder, each a Deployyy
+# project of its own (a Magento in `magento`, its storefront in `storefront`).
+# The deployyy operator then sets DEPLOYYY_APPS in place of those single
+# variables: a JSON list with an entry per folder,
+#
+#   [{"directory":"magento","application":"magento2","image":"ghcr.io/acme/shop",
+#     "php":{"default":"8.3"},"locales":"nl_NL en_US"},
+#    {"directory":"storefront","application":"graphcommerce","image":"ghcr.io/acme/shop/storefront",
+#     "gcMagentoEndpoints":{"*":"https://main.acme-m2.deployyy.app/graphql"}}]
+#
+# and this action answers, for the entries of this workflow's kind, which to
+# BUILD and which to RE-USE: a push that changed nothing in an application's
+# folder (its whole build context) does not build it again; its new commit's
+# tags are pointed at the release of the push before (`before`), which is the
+# same image. Any doubt builds: not a push (a manual run builds everything), a
+# re-run, a force push, a new branch, an application at the repository root
+# (everything is its context), a comparison GitHub cannot give in full, or a
+# release of the push before that is not in the registry.
+# (deployyy-operator docs/HOSTED-BUILDS.md "Several applications in one
+# repository".)
+
+name: applications
+description: Which of the repository's applications this build makes, and which it re-uses
+
+inputs:
+  vars:
+    description: The caller's variables as JSON (`toJSON(vars)`)
+    default: "{}"
+  application:
+    description: The kind this workflow builds, as DEPLOYYY_APPS names it (magento2, graphcommerce, laravel)
+    required: true
+
+outputs:
+  build:
+    description: JSON list of the applications to build, the matrix of the build job
+    value: ${{ steps.plan.outputs.build }}
+  reuse:
+    description: JSON list of the applications to re-use, the matrix of the reuse job
+    value: ${{ steps.plan.outputs.reuse }}
+
+runs:
+  using: composite
+  steps:
+    - name: Which applications to build
+      id: plan
+      shell: bash
+      env:
+        VARS: ${{ inputs.vars }}
+        APPLICATION: ${{ inputs.application }}
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        EVENT: ${{ github.event_name }}
+        BEFORE: ${{ github.event.before }}
+        FORCED: ${{ github.event.forced }}
+        ATTEMPT: ${{ github.run_attempt }}
+        BRANCH: ${{ github.ref_name }}
+      run: python3 "$GITHUB_ACTION_PATH/plan.py"

@@ -19,6 +19,14 @@
 #     and tagged only when both passed, with SBOM + provenance attestations
 #     (.github/actions/build-scan).
 #
+#   - SEVERAL APPLICATIONS in one repository, each in its own folder and each
+#     a project of its own: the operator sets DEPLOYYY_APPS (an entry per
+#     folder with its image and settings) in place of the single variables
+#     above, and this workflow builds the entries of its kind, one job each,
+#     re-using the release of an application whose folder the push did not
+#     change (actions/applications, README "Several applications in one
+#     repository"). Without DEPLOYYY_APPS it is one job, `build`, as always.
+#
 # Variables and secrets: ALL of the project's, never named — the same hand-off
 # and the same handling as magento2-build.yml (see its header):
 #
@@ -73,6 +81,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       name: ${{ steps.find.outputs.name }}
+      # Which of the repository's applications this run builds and which it
+      # re-uses (actions/applications): one `build` for a repository with one
+      # application, as always.
+      build: ${{ steps.apps.outputs.build }}
+      reuse: ${{ steps.apps.outputs.reuse }}
     steps:
       - name: Find the GitHub Environment named after the branch
         id: find
@@ -97,8 +110,34 @@ jobs:
             *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
           esac
 
+      - name: Fetch platform build actions
+        uses: actions/checkout@v4
+        with:
+          repository: ho-nl/deployyy
+          path: .platform-recipes
+          sparse-checkout: .github/actions
+
+      # A repository may hold several applications, each a project of its own
+      # (DEPLOYYY_APPS, set by the deployyy operator): one build job per
+      # laravel application, and none for one whose folder this push did
+      # not change (its release is re-used, the reuse job below).
+      - name: Which applications to build
+        id: apps
+        uses: ./.platform-recipes/.github/actions/applications
+        with:
+          vars: ${{ inputs.vars }}
+          application: laravel
+
   build:
     needs: environment
+    if: needs.environment.outputs.build != '[]'
+    # `build` for a repository with one application, so its check keeps its
+    # name; `build (<folder>)` per application otherwise.
+    name: ${{ matrix.app.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.environment.outputs.build) }}
     runs-on: ${{ inputs.runs-on }}
     environment: ${{ needs.environment.outputs.name }}
     steps:
@@ -121,6 +160,14 @@ jobs:
           secrets: ${{ secrets.all }}
           job-vars: ${{ toJSON(vars) }}
           job-secrets: ${{ toJSON(secrets) }}
+
+      # This job's application: for a repository with several, its folder,
+      # image and settings stand in for the repository's single variables.
+      - name: This application
+        id: app
+        uses: ./.platform-recipes/.github/actions/application
+        with:
+          app: ${{ toJSON(matrix.app) }}
 
       - name: Application directory
         id: root
@@ -233,21 +280,21 @@ jobs:
         id: php
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
-          image: ghcr.io/${{ github.repository }}
+          image: ${{ steps.app.outputs.image }}
           context: ${{ steps.root.outputs.dir }}
           target: php-fpm
           label: php-fpm
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
           secret-files: build-env=${{ steps.values.outputs.build-env }}
-          cache-from: type=gha,scope=php-fpm
-          cache-to: type=gha,scope=php-fpm,mode=max,ignore-error=true
+          cache-from: type=gha,scope=php-fpm${{ steps.app.outputs.scope }}
+          cache-to: type=gha,scope=php-fpm${{ steps.app.outputs.scope }},mode=max,ignore-error=true
 
       - name: Build + scan nginx
         id: nginx
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
-          image: ghcr.io/${{ github.repository }}
+          image: ${{ steps.app.outputs.image }}
           context: ${{ steps.root.outputs.dir }}
           target: nginx
           label: nginx
@@ -257,18 +304,18 @@ jobs:
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}
           cache-from: |
-            type=gha,scope=nginx
-            type=gha,scope=php-fpm
-          cache-to: type=gha,scope=nginx,mode=max,ignore-error=true
+            type=gha,scope=nginx${{ steps.app.outputs.scope }}
+            type=gha,scope=php-fpm${{ steps.app.outputs.scope }}
+          cache-to: type=gha,scope=nginx${{ steps.app.outputs.scope }},mode=max,ignore-error=true
 
       - name: Tag the release
         env:
-          REPO: ${{ github.repository }}
+          IMAGE: ${{ steps.app.outputs.image }}
           SHA_TAG: ${{ steps.resolve.outputs.sha_tag }}
           PHP_REF: ${{ steps.php.outputs.ref }}
           NGINX_REF: ${{ steps.nginx.outputs.ref }}
         run: |
-          image="ghcr.io/${REPO,,}"
+          image="${IMAGE,,}"
           docker buildx imagetools create -t "$image:nginx-$SHA_TAG" "$NGINX_REF"
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
           echo "released $image:php-fpm-$SHA_TAG + nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -280,3 +327,67 @@ jobs:
         with:
           values: ${{ steps.values.outputs.values }}
           platform: laravel
+          several: ${{ steps.app.outputs.multi }}
+          root-directory: ${{ steps.app.outputs.directory }}
+
+  # An application whose folder this push did not change: its new commit's
+  # tags point at the release of the push before, which is the image a build
+  # would make again (the folder is the whole build context). Only for a
+  # repository with several applications (actions/applications says when).
+  reuse:
+    needs: environment
+    if: needs.environment.outputs.reuse != '[]'
+    name: ${{ matrix.app.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.environment.outputs.reuse) }}
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - name: Fetch platform build actions
+        uses: actions/checkout@v4
+        with:
+          repository: ho-nl/deployyy
+          path: .platform-recipes
+          sparse-checkout: .github/actions
+
+      - name: The project's variables and secrets
+        id: values
+        uses: ./.platform-recipes/.github/actions/project-values
+        with:
+          vars: ${{ inputs.vars }}
+          secrets: ${{ secrets.all }}
+          job-vars: ${{ toJSON(vars) }}
+          job-secrets: ${{ toJSON(secrets) }}
+          export: "false"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-use the release of the push before
+        env:
+          IMAGE: ${{ matrix.app.image }}
+          PAIRS: ${{ toJSON(matrix.app.pairs) }}
+          FROM: ${{ matrix.app.from }}
+          DIRECTORY: ${{ matrix.app.directory }}
+        run: |
+          image="${IMAGE,,}"
+          python3 -c 'import json, os; [print(a, b) for a, b in json.loads(os.environ["PAIRS"])]' |
+          while read -r old new; do
+            docker buildx imagetools create -t "$image:$new" "$image:$old"
+          done
+          echo "nothing in $DIRECTORY changed since $FROM: released $image with its release" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Deliver variables and secrets to the environment
+        uses: ./.platform-recipes/.github/actions/deliver-values
+        with:
+          values: ${{ steps.values.outputs.values }}
+          platform: laravel
+          several: "true"
+          root-directory: ${{ matrix.app.directory }}

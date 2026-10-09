@@ -1,0 +1,68 @@
+# One application of the build matrix (see ../applications): where it is,
+# where it publishes, and its settings.
+#
+# For a repository with one application ({"single": true}) it changes nothing:
+# the image is ghcr.io/<repository> and the repository's own variables apply,
+# exactly as before. For one entry of DEPLOYYY_APPS it sets DEPLOYYY_ROOT_DIR,
+# DEPLOYYY_PHP, DEPLOYYY_MAGENTO_LOCALES and DEPLOYYY_GC_MAGENTO_ENDPOINTS for
+# the steps after it from the entry, so they read this application's values
+# and not another's, and names a cache scope of its own, so two applications
+# of one kind do not evict each other's build cache.
+
+name: application
+description: Set up one application of the build matrix
+
+inputs:
+  app:
+    description: The matrix entry, as JSON (`toJSON(matrix.app)`)
+    required: true
+
+outputs:
+  image:
+    description: Where this application's images are published
+    value: ${{ steps.app.outputs.image }}
+  scope:
+    description: Suffix for this application's build cache scope ("" for a repository with one application)
+    value: ${{ steps.app.outputs.scope }}
+  multi:
+    description: '"true" when the repository holds several applications'
+    value: ${{ steps.app.outputs.multi }}
+  directory:
+    description: The application's folder ("" for the repository root)
+    value: ${{ steps.app.outputs.directory }}
+
+runs:
+  using: composite
+  steps:
+    - name: This application
+      id: app
+      shell: bash
+      env:
+        APP: ${{ inputs.app }}
+        REPO: ${{ github.repository }}
+      run: |
+        python3 - <<'EOF'
+        import json, os, re
+        app = json.loads(os.environ["APP"])
+        out = open(os.environ["GITHUB_OUTPUT"], "a")
+        if app.get("single"):
+            print(f"image=ghcr.io/{os.environ['REPO']}", file=out)
+            print("scope=", file=out)
+            print("multi=false", file=out)
+            print("directory=", file=out)
+            raise SystemExit(0)
+        directory = app.get("directory") or ""
+        print(f"the application in {directory or 'the repository root'}, published to {app['image']}")
+        with open(os.environ["GITHUB_ENV"], "a") as env:
+            for name, value in (
+                ("DEPLOYYY_ROOT_DIR", directory),
+                ("DEPLOYYY_PHP", app.get("php") or ""),
+                ("DEPLOYYY_MAGENTO_LOCALES", app.get("locales") or ""),
+                ("DEPLOYYY_GC_MAGENTO_ENDPOINTS", app.get("gcMagentoEndpoints") or ""),
+            ):
+                print(f"{name}={value}", file=env)
+        print(f"image={app['image']}", file=out)
+        print("scope=-" + (re.sub(r"[^a-z0-9]+", "-", directory.lower()).strip("-") or "root"), file=out)
+        print("multi=true", file=out)
+        print(f"directory={directory}", file=out)
+        EOF

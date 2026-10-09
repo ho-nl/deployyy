@@ -56,6 +56,10 @@ def main():
     body = {"variables": values.get("variables", {}), "secrets": values.get("secrets", {})}
     if os.environ.get("PLATFORM"):
         body["platform"] = os.environ["PLATFORM"]
+    # A repository with several applications: the folder says which project
+    # this build was for ("" is the repository root, and is sent as such).
+    if os.environ.get("SEVERAL") == "true":
+        body["rootDirectory"] = os.environ.get("ROOT_DIRECTORY", "")
     payload = json.dumps(body).encode()
 
     for attempt in range(1, ATTEMPTS + 1):

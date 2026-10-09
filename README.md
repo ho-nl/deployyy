@@ -204,6 +204,41 @@ The folder must be a relative path inside the repository (no leading `/`, no
 symbolic link. Otherwise the build stops and says which rule it broke. Unset
 or empty is the repository root, exactly as before.
 
+### Several applications in one repository
+
+One repository may hold several applications, each in its own folder: a
+Magento in `magento` and its GraphCommerce storefront in `storefront`, say.
+Each is a project of its own on Deployyy, created from the same repository
+with its own folder, and each builds and deploys on its own.
+
+- **Callers**: one per kind, the same two caller workflows a Magento project
+  and a GraphCommerce project have anyway (`magento2-build.yml` and
+  `graphcommerce-build.yml`). Nothing in them names a folder.
+- **Settings**: the platform sets the repository variable `DEPLOYYY_APPS`, a
+  list with each application's folder, image and settings, in place of
+  `DEPLOYYY_ROOT_DIR`, `DEPLOYYY_PHP`, `DEPLOYYY_MAGENTO_LOCALES` and
+  `DEPLOYYY_GC_MAGENTO_ENDPOINTS` (which it deletes then). Do not edit it by
+  hand. Each workflow builds the applications of its kind, one job per
+  application (`build (<folder>)`).
+- **Images**: the first project of the repository publishes to
+  `ghcr.io/<your-repo>` as before; every other to `ghcr.io/<your-repo>/<folder>`,
+  so two applications never share tags.
+- **A push builds only what changed.** An application whose folder the push
+  did not change is not built again: its new commit's tags are pointed at the
+  release of the push before (job `re-use (<folder>)`), which is the same
+  image, because the folder is the whole build context. A manual run
+  (`workflow_dispatch`), a re-run, a force push, a new branch, an application
+  at the repository root (everything is its context) or a release of the push
+  before that is missing builds in full. A change of a setting that is not in
+  the folder (a variable, the static-content locales, an improved recipe)
+  reaches an application with its next change or full build: run the
+  workflow by hand to build everything now.
+- **Files at the root** (a lockfile, `.github`) are outside every folder, so
+  they rebuild nothing; an application that needs them builds from the
+  repository root instead.
+- **The storefront pairs with the Magento of the same repository** by itself,
+  branch by branch.
+
 ### Varnish VCL (Magento)
 
 The page cache runs the platform's VCL. To change it, commit a file at the

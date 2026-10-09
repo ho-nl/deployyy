@@ -27,6 +27,12 @@ inputs:
   platform:
     description: What this build is for — magento2, laravel or nextjs — when one repository runs several projects
     default: ""
+  several:
+    description: '"true" when the repository holds several applications (DEPLOYYY_APPS): the delivery then names the folder it built'
+    default: "false"
+  root-directory:
+    description: With several, the folder of the application this build made ("" for the repository root)
+    default: ""
   url:
     description: The Deployyy API endpoint
     default: https://deployyy.app/api/v1/github/values
@@ -42,6 +48,8 @@ runs:
       env:
         VALUES: ${{ inputs.values }}
         PLATFORM: ${{ inputs.platform }}
+        SEVERAL: ${{ inputs.several }}
+        ROOT_DIRECTORY: ${{ inputs.root-directory }}
         URL: ${{ inputs.url }}
         AUDIENCE: ${{ inputs.audience }}
       run: python3 "$GITHUB_ACTION_PATH/deliver.py"

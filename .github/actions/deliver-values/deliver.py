@@ -17,10 +17,11 @@ ATTEMPTS = 7  # about two minutes at 20s apart
 WAIT = 20
 
 
-def warn(message):
-    # Deployyy's own sentences end in a full stop already; say it once.
+def warn(message, step=""):
+    # Deployyy's own sentences end in a full stop already; print one.
     message = message.rstrip(" .") + "."
-    print(f"::warning title=Variables not delivered::{message} The environment keeps the values it had.")
+    step = f" {step}" if step else ""
+    print(f"::warning title=Variables not delivered::{message} The environment keeps its previous values.{step}")
     sys.exit(0)
 
 
@@ -28,7 +29,8 @@ def oidc_token(audience):
     request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL")
     request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
     if not request_url or not request_token:
-        warn("This job cannot ask GitHub for an identity token: the calling workflow must grant `permissions: id-token: write`.")
+        warn("The caller workflow does not grant `id-token: write`.",
+             "Add `id-token: write` to the caller's `permissions`, see README Step 3.")
     separator = "&" if "?" in request_url else "?"
     request = urllib.request.Request(
         f"{request_url}{separator}audience={urllib.parse.quote(audience)}",
@@ -66,7 +68,7 @@ def main():
         try:
             token = oidc_token(audience)
         except (urllib.error.URLError, KeyError, ValueError) as error:
-            warn(f"GitHub did not issue an identity token ({error}).")
+            warn(f"GitHub identity token request failed: {error}.", "Re-run the build.")
         request = urllib.request.Request(
             url,
             data=payload,
@@ -83,24 +85,24 @@ def main():
         except urllib.error.HTTPError as error:
             text = error.read().decode(errors="replace")
             if error.code in RETRY_STATUSES and attempt < ATTEMPTS:
-                print(f"Deployyy answered {error.code}: {detail_of(text) or 'not ready'} — trying again in {WAIT}s")
+                print(f"Deployyy API returned HTTP {error.code}: {(detail_of(text) or 'not ready').rstrip(' .')}. Retrying in {WAIT}s.")
                 time.sleep(WAIT)
                 continue
-            warn(f"Deployyy answered {error.code}: {detail_of(text) or error.reason}.")
+            warn(f"Deployyy API returned HTTP {error.code}: {detail_of(text) or error.reason}.")
         except (urllib.error.URLError, TimeoutError) as error:
             if attempt < ATTEMPTS:
-                print(f"Deployyy could not be reached ({error}) — trying again in {WAIT}s")
+                print(f"Deployyy API unreachable: {error}. Retrying in {WAIT}s.")
                 time.sleep(WAIT)
                 continue
-            warn(f"Deployyy could not be reached ({error}).")
+            warn(f"Deployyy API unreachable: {error}.", "Re-run the build.")
 
-        lines = [answer.get("message") or "Delivered."]
-        for label, key in (("variables", "variables"), ("secrets", "secrets"), ("kept, set by the platform", "kept")):
+        lines = [answer.get("message") or "Variables and secrets delivered."]
+        for label, key in (("Variables", "variables"), ("Secrets", "secrets"), ("Kept Deployyy values", "kept")):
             names = answer.get(key) or []
             if names:
                 lines.append(f"{label}: {', '.join(names)}")
         for skipped in answer.get("skipped") or []:
-            lines.append(f"left out {skipped.get('name')}: {skipped.get('reason')}")
+            lines.append(f"Skipped {skipped.get('name')}: {skipped.get('reason')}")
         print("\n".join(lines))
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
@@ -108,7 +110,7 @@ def main():
                 out.write("### Variables and secrets\n\n" + "\n\n".join(lines) + "\n")
         return
 
-    warn("Deployyy did not answer in time.")
+    warn(f"Deployyy API did not accept the values after {ATTEMPTS} attempts.", "Re-run the build.")
 
 
 if __name__ == "__main__":

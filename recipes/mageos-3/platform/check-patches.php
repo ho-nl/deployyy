@@ -86,7 +86,7 @@ if (isset($composer['name'])) {
 $patchBin = trim((string) shell_exec('command -v patch 2>/dev/null'));
 $gitBin = trim((string) shell_exec('command -v git 2>/dev/null'));
 if ($patchBin === '' && $gitBin === '') {
-    fwrite(STDERR, "FATAL: check-patches needs `patch` or `git` to verify patches/, and neither is installed\n");
+    fwrite(STDERR, "FATAL: check-patches.php needs `patch` or `git` to verify patches/. Install one of them in the image.\n");
     exit(1);
 }
 
@@ -110,7 +110,7 @@ foreach ($files as $file) {
         continue;
     }
     if (isset($tags['type']) && array_intersect(explode(',', strtolower($tags['type'])), ['dev', 'developer', 'development', 'develop'])) {
-        echo "patch $file: dev-only, not checked (the build installs --no-dev)\n";
+        echo "patch $file: dev-only, not checked. The build runs composer install --no-dev.\n";
         continue;
     }
 
@@ -124,13 +124,13 @@ foreach ($files as $file) {
         }
     }
     if ($package === null || $package === '') {
-        $failures[] = "$file: names no target package — declare it in extra.patches of composer.json";
+        $failures[] = "$file: no target package. Declare it in extra.patches of composer.json.";
         continue;
     }
 
     $dir = $package === '*' ? realpath($root . '/vendor') : ($installDirs[$package] ?? null);
     if (!$dir) {
-        $failures[] = "$file: targets $package, which is not installed (on Mage-OS the core packages are mage-os/*, not magento/*)";
+        $failures[] = "$file: target package $package is not installed. Mage-OS core packages are mage-os/*, not magento/*.";
         continue;
     }
 
@@ -152,8 +152,8 @@ foreach ($files as $file) {
         echo "patch $file: applied to $package\n";
     } else {
         $failures[] = isset($declared[$file])
-            ? "$file: declared for $package but NOT applied (no longer matches the installed version?)"
-            : "$file: NOT applied to $package — not declared in extra.patches, so only the patches-search scan could find it, and that skips a branch install (dev-main) unless the header has @version *";
+            ? "$file: declared for $package but not applied. Check that it matches the installed version of $package."
+            : "$file: not applied to $package. Declare it in extra.patches of composer.json.";
     }
 }
 
@@ -162,7 +162,7 @@ if ($failures) {
     foreach ($failures as $failure) {
         fwrite(STDERR, "  - $failure\n");
     }
-    fwrite(STDERR, "Declare each patch in extra.patches of composer.json (package => {label: path}),\n"
-        . "or mark a file kept there on purpose with @skip in its header.\n");
+    fwrite(STDERR, "Declare each patch in extra.patches of composer.json as package => {label: path}.\n"
+        . "Add @skip to the header of a patch that must not be applied.\n");
     exit(1);
 }

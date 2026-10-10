@@ -22,22 +22,22 @@ description: Send a branch's GitHub variables and secrets to its Deployyy enviro
 
 inputs:
   values:
-    description: Path of the JSON {variables, secrets} project-values wrote
+    description: Path to the {variables, secrets} JSON file from project-values
     required: true
   platform:
-    description: What this build is for — magento2, laravel or nextjs — when one repository runs several projects
+    description: Project type when one repository holds several projects, such as magento2, laravel or nextjs
     default: ""
   several:
-    description: '"true" when the repository holds several applications (DEPLOYYY_APPS): the delivery then names the folder it built'
+    description: '"true" when DEPLOYYY_APPS lists several applications. The request then includes root-directory.'
     default: "false"
   root-directory:
-    description: With several, the folder of the application this build made ("" for the repository root)
+    description: Folder of the built application when several is true, empty for the repository root
     default: ""
   url:
-    description: The Deployyy API endpoint
+    description: Deployyy API endpoint
     default: https://deployyy.app/api/v1/github/values
   audience:
-    description: The OIDC audience Deployyy accepts
+    description: OIDC token audience
     default: deployyy
 
 runs:

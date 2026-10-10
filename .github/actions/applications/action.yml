@@ -26,28 +26,28 @@
 # repository".)
 
 name: applications
-description: Which of the repository's applications this build makes, and which it re-uses
+description: Split the repository's applications into builds and reuses
 
 inputs:
   vars:
-    description: The caller's variables as JSON (`toJSON(vars)`)
+    description: Caller variables as toJSON(vars)
     default: "{}"
   application:
-    description: The kind this workflow builds, as DEPLOYYY_APPS names it (magento2, graphcommerce, laravel)
+    description: Application type in DEPLOYYY_APPS, one of magento2, graphcommerce or laravel
     required: true
 
 outputs:
   build:
-    description: JSON list of the applications to build, the matrix of the build job
+    description: Applications to build, as a JSON list for the build job matrix
     value: ${{ steps.plan.outputs.build }}
   reuse:
-    description: JSON list of the applications to re-use, the matrix of the reuse job
+    description: Applications to reuse, as a JSON list for the reuse job matrix
     value: ${{ steps.plan.outputs.reuse }}
 
 runs:
   using: composite
   steps:
-    - name: Which applications to build
+    - name: Plan applications
       id: plan
       shell: bash
       env:

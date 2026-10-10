@@ -88,8 +88,8 @@ console.log(`Created cache-seed.tar.gz (${(tarSize / 1024).toFixed(0)}KB)`)
 const SEED_WARN_MB = parseInt(process.env.CACHE_SEED_WARN_MB || '64', 10)
 if (tarSize > SEED_WARN_MB * 1024 * 1024) {
   console.log(
-    `::warning::cache-seed.tar.gz is ${(tarSize / 1024 / 1024).toFixed(0)}MB ` +
-      `(threshold ${SEED_WARN_MB}MB). This rides in the runtime image and slows ` +
-      `every image pull. Reduce the prerender set, or move the seed to a separate image.`,
+    `::warning::cache-seed.tar.gz is ${(tarSize / 1024 / 1024).toFixed(0)}MB` +
+      `, over the ${SEED_WARN_MB}MB limit. The seed ships in the runtime image and slows ` +
+      `every image pull. Prerender fewer pages.`,
   )
 }

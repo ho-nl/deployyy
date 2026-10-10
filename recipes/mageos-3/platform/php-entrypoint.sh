@@ -26,6 +26,27 @@ PHP_VERSION="${PHP_VERSION}" "$real_php" /usr/local/bin/setup_extensions.php | b
 "$real_php" /usr/local/bin/check_php_env_var_changes.php > /dev/null
 "$real_php" /usr/local/bin/startup_commands.php | bash
 
+# FastBoot (graphcommerce/magento-fast-boot), when the project installs it, for the
+# php-fpm master only. fastboot:prepare fills the node-local caches before the first
+# request. Preload loads the classes of the project's committed preload-classes.txt
+# into OPcache when the master starts; without that file it loads nothing. The image
+# never changes, so the next start is the only reload. A dev box checks file times
+# because its code changes, so it gets no preload.
+preload=/var/www/html/vendor/graphcommerce/magento-fast-boot/src/FastBootPreload/preload.php
+if [ "${1:-}" = "php-fpm" ] && [ -f "$preload" ]; then
+  if [ -f /var/www/html/preload-classes.txt ]; then
+    { mkdir -p /var/www/html/var/cache/preload \
+      && install -m 0600 /var/www/html/preload-classes.txt /var/www/html/var/cache/preload/classes.txt \
+      && rm -f /var/www/html/var/cache/preload/classes.recording; } \
+      || echo "preload-classes.txt not installed; PHP-FPM preloads nothing" >&2
+  fi
+  timeout 120 php /var/www/html/bin/magento fastboot:prepare \
+    || echo "fastboot:prepare failed; FastBoot fills its caches on the first requests" >&2
+  if [ "${PHP_INI_OPCACHE__VALIDATE_TIMESTAMPS:-0}" != "1" ]; then
+    set -- "$@" -d "opcache.preload=$preload"
+  fi
+fi
+
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi

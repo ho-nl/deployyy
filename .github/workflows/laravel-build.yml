@@ -133,7 +133,7 @@ jobs:
     if: needs.environment.outputs.build != '[]'
     # `build` for a repository with one application, so its check keeps its
     # name; `build (<folder>)` per application otherwise.
-    name: ${{ matrix.app.label }}
+    name: Build
     strategy:
       fail-fast: false
       matrix:
@@ -337,7 +337,7 @@ jobs:
   reuse:
     needs: environment
     if: needs.environment.outputs.reuse != '[]'
-    name: ${{ matrix.app.label }}
+    name: Reuse unchanged release
     strategy:
       fail-fast: false
       matrix:

@@ -307,6 +307,24 @@ module, if you need one, goes in your `composer.json`.
    Add `@skip` to the header of a patch file that must not be applied. A
    project without `patches/` is not affected.
 
+### FastBoot (Magento)
+
+When your project installs
+[`graphcommerce/magento-fast-boot`](https://github.com/graphcommerce-org/magento2-GraphCommerce_FastBoot),
+the recipes switch it on:
+
+- `env.php` enables its GraphQL schema cache in the environment's cache Redis,
+  with the host of the base URL as the installation.
+- The web container runs `bin/magento fastboot:prepare` before PHP-FPM starts.
+  If it fails, FastBoot fills its caches on the first requests.
+- PHP-FPM preloads the classes listed in `preload-classes.txt` at the root of
+  your repository. Without that file, nothing is preloaded. A dev box never
+  preloads, because its code changes.
+
+To make the list, copy `var/cache/preload/classes.txt` from a running web
+container after it has served real traffic, and commit it as
+`preload-classes.txt`. Refresh it when the classes your shop uses change.
+
 ## Recipes
 
 | Line | Directory | PHP | Status |

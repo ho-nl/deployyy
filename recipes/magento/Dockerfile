@@ -241,12 +241,20 @@ RUN php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_pu
 # entrypoint (.platform/php-entrypoint.sh) and `php` wrapper (.platform/php-wrapper.sh)
 # do the same work. Runtime PHP_INI_* variables (dev mode sets opcache ones) still work.
 # See docs/PSS-RESTRICTED.md.
+#
+# OPcache holds a Magento installation: about 50 000 PHP files with the generated code,
+# more than the image's 10 000 keys and 128 MB hold once a shop serves its checkout,
+# account and GraphQL pages too, and the image's 8 MB of interned strings is full after
+# one listing page. The image never changes after the build, so OPcache does not check
+# file times; a dev box sets PHP_INI_OPCACHE__VALIDATE_TIMESTAMPS=1 at runtime.
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm AS php-fpm
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_BCMATH=1 PHP_EXTENSION_SOAP=1 \
     PHP_EXTENSION_SOCKETS=1 PHP_EXTENSION_SODIUM=1 PHP_EXTENSION_XSL=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_INI_MEMORY_LIMIT=2G \
     PHP_INI_OPCACHE__ENABLE=1 PHP_INI_DATE__TIMEZONE=Europe/Amsterdam \
+    PHP_INI_OPCACHE__MEMORY_CONSUMPTION=512 PHP_INI_OPCACHE__INTERNED_STRINGS_BUFFER=64 \
+    PHP_INI_OPCACHE__MAX_ACCELERATED_FILES=130000 PHP_INI_OPCACHE__VALIDATE_TIMESTAMPS=0 \
     TEMPLATE_PHP_INI=production
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-client \

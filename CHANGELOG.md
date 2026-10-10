@@ -8,6 +8,18 @@ are noted per entry.
 
 ### Magento
 
+- **Varnish caches the pages.** With Varnish in front (the default), the
+  recipe's `env.php` now also selects it as Magento's page cache. Before, a
+  database without that setting kept Magento on its built-in cache. Magento
+  then marked every page uncacheable for Varnish, and each first visit of a
+  page rendered in full. Takes effect at a project's next build.
+
+- **OPcache holds the whole shop.** The recipe's PHP keeps up to 130 000
+  compiled files in 512 MB, with 64 MB of interned strings, and does not
+  check file times (the image never changes; a dev box still does). The
+  image's defaults (10 000 files, 128 MB, 8 MB) were nearly full after one
+  listing page. Takes effect at a project's next build.
+
 - **Every store view uses the environment's URL.** Before, a store-scope or
   website-scope `base_url` in the database overrode the environment's URL. A
   copied, moved or imported database kept its old host. After a project move,

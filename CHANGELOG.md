@@ -8,6 +8,20 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Magento
 
+- **Every store view's URL is the platform's.** A store-scope or
+  website-scope `base_url` in the database outranks the default the platform
+  pins, so a copied, moved or imported database kept handing out the host it
+  came from (after a project move every link and image pointed at the old,
+  dead host). The recipe's `env.php` now pins the base URL of every store
+  view (`MAGENTO_STORE_BASE_URLS`) and website (`MAGENTO_WEBSITE_BASE_URLS`)
+  the platform hands it. Below production it also makes cookies host-only and
+  lets static and media files follow the base URL, so a database from another
+  environment cannot point them elsewhere; production keeps the database's
+  cookie domain and media host. `base_link_url` stays the shop's: a headless
+  shop points it at its storefront for e-mails and the sitemap. Takes effect
+  at a project's next build; needs the platform release that reads the store
+  views (deployyy-operator `docs/URL-MAPPING.md`).
+
 - **`env.php` reads the services by their generic names.** The recipe's
   `env.php` (Magento Open Source and Mage-OS) now reads each service by the
   name the project gives it: `DB_*` for the database (with `DB_PORT`),

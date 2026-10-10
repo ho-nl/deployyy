@@ -1,10 +1,27 @@
 <?php
 /**
  * Platform-injected Magento env.php. Reads configuration from environment
- * variables provided by the platform stack (the magento-env ConfigMap +
- * the operator-synced secrets), so the image is environment-agnostic.
+ * variables provided by the platform stack (the magento-env ConfigMap, the
+ * services-env Secret and the operator-synced secrets), so the image is
+ * environment-agnostic.
+ *
+ * The services (database, search, session store, cache, queue, media
+ * storage) are read by their GENERIC names only (deployyy-operator
+ * docs/SERVICES.md §4/§5): each service hands its processes `<NAME>_HOST`,
+ * `<NAME>_PORT`, ... prefixed with the service's name, and the default recipe
+ * names them after their role: db, search, session, cache, queue, media. The
+ * older names (OPENSEARCH_*, REDIS_SESSION_*, REDIS_CACHE_*, RABBITMQ_*,
+ * AWS_S3_*) are not read here any more; the platform stops emitting them once
+ * every environment runs an image built from this file (SERVICES.md §8).
  */
 $e = static fn(string $k, $d = null) => getenv($k) !== false ? getenv($k) : $d;
+
+// The database host, with its port when the service names one (Magento's MySQL
+// adapter splits `host:port`).
+$dbHost = $e('DB_HOST', 'magento-mysql-haproxy');
+if (($e('DB_PORT') ?? '') !== '') {
+    $dbHost .= ':' . $e('DB_PORT');
+}
 
 // Every cache type this codebase declares, generated AT BUILD TIME by the Dockerfile
 // (see the cache_types.php step there for the full rationale and the regeneration
@@ -42,7 +59,7 @@ $config = [
     'db' => [
         'connection' => [
             'default' => [
-                'host' => $e('DB_HOST', 'magento-mysql-haproxy'),
+                'host' => $dbHost,
                 'dbname' => $e('DB_NAME', 'magento'),
                 'username' => $e('DB_USER', 'root'),
                 'password' => $e('DB_PASSWORD', ''),
@@ -59,9 +76,9 @@ $config = [
     'session' => [
         'save' => 'redis',
         'redis' => [
-            'host' => $e('REDIS_SESSION_HOST', 'redis-session'),
-            'port' => $e('REDIS_SESSION_PORT', '6379'),
-            'database' => $e('REDIS_SESSION_DB', '0'),
+            'host' => $e('SESSION_HOST', 'redis-session'),
+            'port' => $e('SESSION_PORT', '6379'),
+            'database' => '0',
             'disable_locking' => '1',
         ],
     ],
@@ -70,36 +87,27 @@ $config = [
             'default' => [
                 'backend' => $cacheBackend,
                 'backend_options' => [
-                    'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
-                    'port' => $e('REDIS_CACHE_PORT', '6379'),
-                    'database' => $e('REDIS_CACHE_DB', '0'),
+                    'server' => $e('CACHE_HOST', 'redis-cache'),
+                    'port' => $e('CACHE_PORT', '6379'),
+                    'database' => '0',
                 ],
             ],
             'page_cache' => [
                 'backend' => $cacheBackend,
                 'backend_options' => [
-                    'server' => $e('REDIS_CACHE_HOST', 'redis-cache'),
-                    'port' => $e('REDIS_CACHE_PORT', '6379'),
+                    'server' => $e('CACHE_HOST', 'redis-cache'),
+                    'port' => $e('CACHE_PORT', '6379'),
                     'database' => '1',
                 ],
             ],
-        ],
-    ],
-    'queue' => [
-        'amqp' => [
-            'host' => $e('RABBITMQ_HOST', 'rabbitmq'),
-            'port' => $e('RABBITMQ_PORT', '5672'),
-            'user' => $e('RABBITMQ_USER', 'magento'),
-            'password' => $e('RABBITMQ_PASSWORD', ''),
-            'virtualhost' => '/',
         ],
     ],
     'system' => [
         'default' => [
             'catalog' => ['search' => [
                 'engine' => 'opensearch',
-                'opensearch_server_hostname' => $e('OPENSEARCH_HOST', 'opensearch'),
-                'opensearch_server_port' => $e('OPENSEARCH_PORT', '9200'),
+                'opensearch_server_hostname' => $e('SEARCH_HOST', 'opensearch'),
+                'opensearch_server_port' => $e('SEARCH_PORT', '9200'),
                 'opensearch_index_prefix' => 'magento2',
                 'opensearch_enable_auth' => '0',
             ]],
@@ -107,6 +115,19 @@ $config = [
     ],
     'directories' => ['document_root_is_pub' => true],
 ];
+
+// The queue is optional (docs/SERVICES.md §5): a project without a queue service
+// gets no QUEUE_HOST, writes no amqp block, and Magento runs its consumers on
+// its MySQL queue instead.
+if (($e('QUEUE_HOST') ?? '') !== '') {
+    $config['queue']['amqp'] = [
+        'host' => $e('QUEUE_HOST'),
+        'port' => $e('QUEUE_PORT', '5672'),
+        'user' => $e('QUEUE_USER', 'magento'),
+        'password' => $e('QUEUE_PASSWORD', ''),
+        'virtualhost' => $e('QUEUE_VHOST', '/'),
+    ];
+}
 
 // The page cache in front of this environment (App.spec.front.pageCache).
 // Varnish on — the default — is where Magento sends its purges. Off, the
@@ -240,24 +261,24 @@ $config['system']['default']['dev'] = [
     'css' => ['minify_files' => '0'],
 ];
 
-// Media lives on S3 (pub/media -> s3://<bucket>/media/), matching the other Magento envs
-// on this platform. The stack injects the magento-s3 secret via envFrom; the pods mount
-// NO media volume (var/ is an emptyDir), so without this Magento would write uploads to
-// the container filesystem — lost on every restart and never shared across replicas.
+// Media lives on S3 (pub/media -> s3://<bucket>/media/) when the project has a media
+// storage service (`media`, docs/SERVICES.md §5). Its bucket, endpoint, region and keys
+// arrive as MEDIA_*; without a bucket the pods mount a shared media volume instead.
 //
-// Guarded on AWS_S3_BUCKET so an env without S3 configured falls back to local storage
-// rather than booting with a broken remote_storage driver.
-if ($e('AWS_S3_BUCKET')) {
+// Guarded on MEDIA_BUCKET so an env without a bucket (no storage service, or media on a
+// volume) falls back to local storage rather than booting with a broken remote_storage
+// driver.
+if ($e('MEDIA_BUCKET')) {
     $config['remote_storage'] = [
         'driver' => 'aws-s3',
         'prefix' => '',
         'config' => [
-            'bucket' => $e('AWS_S3_BUCKET'),
-            'region' => $e('AWS_S3_REGION', 'gra'),
-            'endpoint' => $e('AWS_S3_ENDPOINT'),
+            'bucket' => $e('MEDIA_BUCKET'),
+            'region' => $e('MEDIA_REGION', 'gra'),
+            'endpoint' => $e('MEDIA_ENDPOINT'),
             'path_style' => '1',
-            'key' => $e('AWS_ACCESS_KEY_ID'),
-            'secret' => $e('AWS_SECRET_ACCESS_KEY'),
+            'key' => $e('MEDIA_ACCESS_KEY_ID'),
+            'secret' => $e('MEDIA_SECRET_ACCESS_KEY'),
         ],
     ];
 }

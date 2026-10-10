@@ -328,6 +328,18 @@ of these releases:
   minification to match. A database with other minification settings cannot
   make the shop ask for files that are not in the image.
 
+**Services.** `env.php` reads every service by its generic name: the
+variables a service hands the shop are prefixed with the service's name, and
+the default services are called `db`, `search`, `session`, `cache`, `queue`
+and `media`. So the recipe reads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
+`DB_PASSWORD`, `SEARCH_HOST`, `SEARCH_PORT`, `SESSION_HOST`, `SESSION_PORT`,
+`CACHE_HOST`, `CACHE_PORT`, `QUEUE_HOST`, `QUEUE_PORT`, `QUEUE_USER`,
+`QUEUE_PASSWORD`, `QUEUE_VHOST`, `MEDIA_BUCKET`, `MEDIA_ENDPOINT`,
+`MEDIA_REGION`, `MEDIA_ACCESS_KEY_ID` and `MEDIA_SECRET_ACCESS_KEY`. The queue
+and the media bucket are optional: without `QUEUE_HOST` Magento uses its
+MySQL queue, without `MEDIA_BUCKET` it keeps its files locally. A repository
+that ships its own `.platform/env.php` should read the same names.
+
 A line that has no recipe stops the build with a clear message that shows
 the supported lines. Adobe Commerce has no recipe. Your repository can ship
 its own Dockerfile.

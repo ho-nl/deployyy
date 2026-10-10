@@ -8,6 +8,18 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Magento
 
+- **`env.php` reads the services by their generic names.** The recipe's
+  `env.php` (Magento Open Source and Mage-OS) now reads each service by the
+  name the project gives it: `DB_*` for the database (with `DB_PORT`),
+  `SEARCH_HOST`/`SEARCH_PORT`, `SESSION_HOST`/`SESSION_PORT`,
+  `CACHE_HOST`/`CACHE_PORT`, `QUEUE_*` and `MEDIA_*`, and no longer reads
+  `OPENSEARCH_*`, `REDIS_SESSION_*`, `REDIS_CACHE_*`, `RABBITMQ_*` or
+  `AWS_S3_*` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. A project
+  without a queue service writes no RabbitMQ settings, so Magento uses its
+  MySQL queue; a project without a media bucket keeps its files locally.
+  Takes effect at a project's next build. Needs the platform release that
+  hands out these names (deployyy-operator `docs/SERVICES.md` §8).
+
 - **Product images are cached in the browser for a year.** With media on
   remote storage, every image is answered by Magento's `get.php`, and those
   responses carried no cache headers, so a browser fetched every image again

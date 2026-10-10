@@ -50,25 +50,25 @@ def changed_files():
     """The push's changed files, or None when they cannot be known in full."""
     before, after = os.environ.get("BEFORE", ""), os.environ["GITHUB_SHA"]
     if os.environ.get("EVENT") != "push":
-        print("not a push: every application builds")
+        print(f"Event {os.environ.get('EVENT')} is not a push. Building every application.")
         return None
     if os.environ.get("ATTEMPT", "1") != "1":
-        print("a re-run: every application builds")
+        print(f"Re-run attempt {os.environ.get('ATTEMPT')}. Building every application.")
         return None
     if os.environ.get("FORCED") == "true":
-        print("a force push: every application builds")
+        print("Force push. Building every application.")
         return None
     if not before or before == ZERO:
-        print("a new branch: every application builds")
+        print(f"New branch {os.environ.get('BRANCH')}. Building every application.")
         return None
     try:
         answer = api(f"/repos/{os.environ['REPO']}/compare/{before}...{after}")
     except (urllib.error.URLError, OSError, ValueError) as error:
-        print(f"::warning::Could not ask GitHub what this push changed ({error}); every application builds")
+        print(f"::warning::GitHub comparison of {before[:7]}...{after[:7]} failed: {error}. Building every application.")
         return None
     files = answer.get("files") or []
     if answer.get("status") != "ahead" or len(files) >= MAX_FILES:
-        print("GitHub cannot list this push's changes in full: every application builds")
+        print(f"GitHub returned an incomplete comparison of {before[:7]}...{after[:7]}. Building every application.")
         return None
     out = set()
     for f in files:
@@ -135,9 +135,9 @@ def main():
     try:
         entries = json.loads(raw)
     except ValueError:
-        fail(f"The repository variable DEPLOYYY_APPS is not JSON. The deployyy operator sets it; do not edit it by hand.")
+        fail("The repository variable DEPLOYYY_APPS is not valid JSON. Revert the manual edit to DEPLOYYY_APPS.")
     if not isinstance(entries, list):
-        fail("The repository variable DEPLOYYY_APPS is not a list. The deployyy operator sets it; do not edit it by hand.")
+        fail("The repository variable DEPLOYYY_APPS is not a JSON list. Revert the manual edit to DEPLOYYY_APPS.")
 
     kind = os.environ["APPLICATION"]
     owner = os.environ["REPO"].split("/")[0].lower()
@@ -147,10 +147,10 @@ def main():
             continue
         directory = entry.get("directory") or ""
         if directory and (not DIRECTORY.match(directory) or any(p in (".", "..") for p in directory.split("/"))):
-            fail(f"DEPLOYYY_APPS names the folder {directory!r}, which is not a path inside the repository")
+            fail(f"DEPLOYYY_APPS folder {directory!r} is not a path inside the repository. Set the project's root directory to a folder in the repository.")
         image = (entry.get("image") or f"ghcr.io/{os.environ['REPO']}").lower()
         if not image.startswith(f"ghcr.io/{owner}/"):
-            fail(f"DEPLOYYY_APPS publishes {directory or 'the repository root'} to {image}; this build publishes to ghcr.io/{owner}/ only")
+            fail(f"DEPLOYYY_APPS publishes {directory or 'the repository root'} to {image}. Images must be under ghcr.io/{owner}/.")
         mine.append({
             "directory": directory,
             "label": f"build ({directory or 'repository root'})",
@@ -161,7 +161,7 @@ def main():
             "_entry": entry,
         })
     if not mine:
-        print(f"::notice::This repository holds no {kind} application Deployyy builds with this workflow: nothing to build.")
+        print(f"::notice::DEPLOYYY_APPS lists no {kind} application. Nothing to build.")
         output("build", [])
         output("reuse", [])
         return
@@ -182,15 +182,15 @@ def main():
                         pairs = None
                         break
             except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
-                print(f"::warning::Could not look up the release of {before[:7]} for {directory} ({error}); building it")
+                print(f"::warning::Lookup of the {before[:7]} release for {directory} failed: {error}. Building {directory}.")
                 pairs = None
             if pairs:
-                print(f"{directory}: nothing in it changed since {before[:7]}, so its release is re-used")
+                print(f"{directory}: unchanged since {before[:7]}. Reusing the {before[:7]} release.")
                 reuse.append({**app, "label": f"re-use ({directory})", "pairs": pairs, "from": before[:7]})
                 continue
-            print(f"{directory}: the release of {before[:7]} is not in the registry, so it builds")
+            print(f"{directory}: no {before[:7]} release in the registry. Building {directory}.")
         elif changed is not None and directory:
-            print(f"{directory}: changed in this push, so it builds")
+            print(f"{directory}: changed since {os.environ['BEFORE'][:7]}. Building {directory}.")
         build.append(app)
     output("build", build)
     output("reuse", reuse)

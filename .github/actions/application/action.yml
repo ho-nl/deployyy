@@ -19,22 +19,22 @@ inputs:
 
 outputs:
   image:
-    description: Where this application's images are published
+    description: Image name for the application
     value: ${{ steps.app.outputs.image }}
   scope:
-    description: Suffix for this application's build cache scope ("" for a repository with one application)
+    description: Build cache scope suffix, empty for a repository with one application
     value: ${{ steps.app.outputs.scope }}
   multi:
     description: '"true" when the repository holds several applications'
     value: ${{ steps.app.outputs.multi }}
   directory:
-    description: The application's folder ("" for the repository root)
+    description: Application folder, empty for the repository root
     value: ${{ steps.app.outputs.directory }}
 
 runs:
   using: composite
   steps:
-    - name: This application
+    - name: Set up application
       id: app
       shell: bash
       env:
@@ -52,7 +52,7 @@ runs:
             print("directory=", file=out)
             raise SystemExit(0)
         directory = app.get("directory") or ""
-        print(f"the application in {directory or 'the repository root'}, published to {app['image']}")
+        print(f"Application directory: {directory or 'repository root'}. Image: {app['image']}")
         with open(os.environ["GITHUB_ENV"], "a") as env:
             for name, value in (
                 ("DEPLOYYY_ROOT_DIR", directory),

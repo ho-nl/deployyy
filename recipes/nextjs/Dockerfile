@@ -42,7 +42,7 @@ ARG DEPLOYYY_BUILD_ID=""
 RUN --mount=type=secret,id=build-env,required=false \
     set -eu; \
     if [ -f /run/secrets/build-env ]; then set -a; . /run/secrets/build-env; set +a; \
-      echo "build env: $(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' /run/secrets/build-env | tr '\n' ' ')"; fi; \
+      echo "Build variables: $(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' /run/secrets/build-env | tr '\n' ' ')"; fi; \
     if [ -f pnpm-lock.yaml ]; then pm=pnpm; pnpm install --frozen-lockfile; \
     elif [ -f yarn.lock ]; then pm=yarn; \
       if [ "$(yarn --version | cut -d. -f1)" = "1" ]; then yarn install --frozen-lockfile; \
@@ -52,18 +52,17 @@ RUN --mount=type=secret,id=build-env,required=false \
     if node -e 'process.exit(require("./package.json").scripts?.build ? 0 : 1)'; then \
       "$pm" run build; else npx --no-install next build; fi; \
     test -f .next/standalone/server.js || { \
-      echo "FATAL: .next/standalone/server.js is missing. The platform runs the Next.js standalone server;"; \
-      echo "a monorepo with outputFileTracingRoot puts it elsewhere: ship a repo-local Dockerfile for that layout."; \
+      echo "FATAL: next build produced no .next/standalone/server.js."; \
+      echo "With outputFileTracingRoot set, server.js is elsewhere. Add a Dockerfile for that layout to the application directory."; \
       exit 1; }
 # Readiness is GET /api/health by default (operator compose.go; the path and
 # port are project settings there). An app without the route it is probed on
 # builds, but its pods never become ready.
 RUN if [ -e .next/server/pages/api/health.js ] || [ -e .next/server/app/api/health/route.js ]; then \
-      echo "health route: /api/health present"; \
+      echo "Health route: /api/health found"; \
     else \
-      echo "WARNING: no /api/health route found. The platform's default readiness probe is GET /api/health;"; \
-      echo "WARNING: add pages/api/health.(js|ts) or app/api/health/route.(js|ts) that answers 200,"; \
-      echo "WARNING: or set another health path in the project's platform settings."; \
+      echo "WARNING: no /api/health route found. A release serves traffic only after GET /api/health returns HTTP 200."; \
+      echo "WARNING: add pages/api/health.(js|ts) or app/api/health/route.(js|ts), or set another health path in the project settings."; \
     fi
 # The prerendered routes, in the cache handler's format, for the seed image.
 RUN node .platform/seed-cache.mjs && mkdir -p public

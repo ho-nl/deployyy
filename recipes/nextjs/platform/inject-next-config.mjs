@@ -42,7 +42,7 @@ const root = process.cwd()
 const HANDLER = 'deployyy-cache-handler.mjs'
 
 if (!fs.existsSync(path.join(root, HANDLER))) {
-  console.error(`FATAL: ${HANDLER} is missing in ${root}; the Dockerfile must copy it first.`)
+  console.error(`FATAL: ${HANDLER} is missing in ${root}. Copy .platform/cache-handler.mjs to ${HANDLER} before running inject-next-config.mjs.`)
   process.exit(1)
 }
 
@@ -50,7 +50,7 @@ if (!fs.existsSync(path.join(root, HANDLER))) {
 const candidates = ['next.config.js', 'next.config.mjs', 'next.config.ts', 'next.config.mts']
 const found = candidates.filter((f) => fs.existsSync(path.join(root, f)))
 if (found.length > 1) {
-  console.log(`::warning::more than one Next config file (${found.join(', ')}); Next uses ${found[0]}, so does the platform.`)
+  console.log(`::warning::Found several Next config files: ${found.join(', ')}. Next.js loads ${found[0]} only. Delete the others.`)
 }
 const original = found[0]
 
@@ -66,7 +66,7 @@ const wrapperName = isTs ? original : 'next.config.mjs'
 if (!isTs) {
   for (const f of ['next.config.js', 'next.config.mjs']) {
     if (f !== wrapperName && fs.existsSync(path.join(root, f))) {
-      console.error(`FATAL: ${f} still exists next to the generated ${wrapperName}; Next would read ${f}.`)
+      console.error(`FATAL: ${f} and the generated ${wrapperName} both exist. Next.js would load ${f}. Delete ${f}.`)
       process.exit(1)
     }
   }
@@ -94,7 +94,7 @@ export default async function deployyyConfig(phase${isTs ? ': string' : ''}, ctx
   const base = typeof loaded === 'function' ? await loaded(phase, ctx) : await loaded
   const config = { ...(base ?? {}) }
   if (config.output === 'export') {
-    throw new Error("deployyy: output: 'export' builds static files only; the platform runs a Next.js server. Remove output: 'export'.")
+    throw new Error("deployyy: output: 'export' produces static files without a server. Remove output: 'export' from your next.config.")
   }
   if (!config.output) config.output = 'standalone'
   if (!config.generateBuildId && process.env.DEPLOYYY_BUILD_ID) {
@@ -102,7 +102,7 @@ export default async function deployyyConfig(phase${isTs ? ': string' : ''}, ctx
     config.generateBuildId = () => buildId
   }
   if (config.cacheHandler) {
-    console.warn('deployyy: the project sets its own cacheHandler; the platform cache handler is NOT used.')
+    console.warn('deployyy: next.config sets its own cacheHandler. The shared page cache is not used.')
   } else {
     config.cacheHandler = handler
     config.cacheMaxMemorySize = 0
@@ -113,6 +113,6 @@ export default async function deployyyConfig(phase${isTs ? ': string' : ''}, ctx
 
 fs.writeFileSync(path.join(root, wrapperName), body)
 console.log(
-  `next config: ${original ? `${original} -> ${projectFile}` : 'no project config'}; ` +
-    `wrapper ${wrapperName} sets cacheHandler=${HANDLER}, cacheMaxMemorySize=0, output=standalone (unless set)`,
+  `Next config: ${original ? `${original} renamed to ${projectFile}` : 'none in the project'}. ` +
+    `${wrapperName} adds cacheHandler=${HANDLER}, cacheMaxMemorySize=0 and output=standalone where unset.`,
 )

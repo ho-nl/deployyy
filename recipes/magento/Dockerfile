@@ -131,15 +131,15 @@ EOF
 ARG PLATFORM_QUEUE_POISON_PILL_PK=0
 RUN set -eu; \
     if [ "$PLATFORM_QUEUE_POISON_PILL_PK" != "1" ]; then \
-      echo "queue_poison_pill: off (build-arg PLATFORM_QUEUE_POISON_PILL_PK=1 turns it on)"; \
+      echo "queue_poison_pill primary key: off. Set build-arg PLATFORM_QUEUE_POISON_PILL_PK=1 to add Deployyy_QueuePoisonPillPk."; \
       rm -rf /tmp/platform-modules; exit 0; fi; \
     found=$(find vendor app/code -name db_schema.xml -print0 2>/dev/null \
       | xargs -0 -r php -r 'foreach (array_slice($argv, 1) as $f) { $x = @simplexml_load_file($f); if ($x && $x->xpath("//table[@name=\"queue_poison_pill\"]/constraint[@*[local-name()=\"type\"]=\"primary\"]")) echo "$f\n"; }'); \
     if [ -n "$found" ]; then \
-      echo "queue_poison_pill: primary key declared in $found, platform module not added"; \
+      echo "queue_poison_pill: primary key declared in $found. Deployyy_QueuePoisonPillPk not added."; \
     else \
       mkdir -p app/code/Deployyy && cp -r /tmp/platform-modules/QueuePoisonPillPk app/code/Deployyy/QueuePoisonPillPk; \
-      echo "queue_poison_pill: no primary key in the tree, Deployyy_QueuePoisonPillPk added"; \
+      echo "queue_poison_pill: no primary key declared. Deployyy_QueuePoisonPillPk added."; \
     fi; \
     rm -rf /tmp/platform-modules
 # Enable the platform modules in config.php. An explicit 0 in the project's config.php
@@ -148,7 +148,7 @@ RUN set -eu; \
 RUN php -r '$f = "app/etc/config.php"; if (!is_file($f)) exit(0); $c = include $f; if (!isset($c["modules"])) exit(0); \
       foreach (["Deployyy_QueuePoisonPillPk" => "app/code/Deployyy/QueuePoisonPillPk"] as $m => $d) { \
         if (!is_dir($d)) continue; \
-        if (array_key_exists($m, $c["modules"])) { fwrite(STDERR, "$m: config.php says {$c["modules"][$m]}, kept\n"); continue; } \
+        if (array_key_exists($m, $c["modules"])) { fwrite(STDERR, "$m: kept at {$c["modules"][$m]} from config.php\n"); continue; } \
         $c["modules"][$m] = 1; fwrite(STDERR, "$m: enabled\n"); } \
       file_put_contents($f, "<?php\nreturn " . var_export($c, true) . ";\n");'
 
@@ -166,14 +166,14 @@ RUN set -eu; \
     find vendor app -path '*/etc/cache.xml' -print0 2>/dev/null \
       | xargs -0 -r grep -ho '<type name="[a-z_]*"' \
       | sed 's/.*name="//;s/"//' | sort -u > /tmp/cache_types.txt; \
-    test -s /tmp/cache_types.txt || { echo "FATAL: no cache.xml <type> entries found"; exit 1; }; \
+    test -s /tmp/cache_types.txt || { echo "FATAL: no etc/cache.xml declares a cache type. Check the composer install output above."; exit 1; }; \
     { echo "<?php"; \
       echo "// GENERATED AT BUILD TIME by the platform Dockerfile — do not edit."; \
       echo "// Every cache type this codebase declares; a type missing here is DISABLED."; \
       echo "return ["; \
       sed 's/^/    "/; s/$/",/' /tmp/cache_types.txt; \
       echo "];"; } > app/etc/cache_types.php; \
-    echo "cache types baked: $(wc -l < /tmp/cache_types.txt) -> $(tr '\n' ' ' < /tmp/cache_types.txt)"
+    echo "Cache types: $(wc -l < /tmp/cache_types.txt), $(tr '\n' ' ' < /tmp/cache_types.txt)"
 # Static content must be deployed for EVERY locale the store views use. The build is
 # DB-less, so Magento cannot discover the locales itself — they come from
 # PLATFORM_LOCALES and must be KEPT IN SYNC WITH THE STORE VIEWS. Too few locales does not

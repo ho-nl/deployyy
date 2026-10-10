@@ -123,7 +123,7 @@ let totalSize = 0
 
 if (nextMajor < 13 || nextMajor > 16) {
   console.log(
-    `::warning::Next ${nextVersion} is not a version the cache seed knows; the release starts with a cold cache.`,
+    `::warning::The cache seed supports Next 13 to 16, not Next ${nextVersion}. The release starts with an empty page cache.`,
   )
 } else {
   const manifest = readJson(join(NEXT_DIR, 'prerender-manifest.json')) ?? { routes: {} }
@@ -154,8 +154,8 @@ console.log(`Created cache-seed.tar.gz (${(tarSize / 1024).toFixed(0)}KB)`)
 const SEED_WARN_MB = parseInt(process.env.CACHE_SEED_WARN_MB || '512', 10)
 if (tarSize > SEED_WARN_MB * 1024 * 1024) {
   console.log(
-    `::warning::cache-seed.tar.gz is ${(tarSize / 1024 / 1024).toFixed(0)}MB ` +
-      `(threshold ${SEED_WARN_MB}MB). Reduce the prerender set (getStaticPaths / ` +
-      `generateStaticParams) and let the rest render on demand.`,
+    `::warning::cache-seed.tar.gz is ${(tarSize / 1024 / 1024).toFixed(0)}MB` +
+      `, over the ${SEED_WARN_MB}MB limit. Prerender fewer pages in getStaticPaths or ` +
+      `generateStaticParams.`,
   )
 }

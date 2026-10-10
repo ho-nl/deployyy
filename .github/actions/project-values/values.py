@@ -14,6 +14,14 @@ import uuid
 
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+# What each input is called in a warning.
+INPUTS = {
+    "IN_VARS": "Input vars",
+    "IN_SECRETS": "Input secrets",
+    "JOB_VARS": "Input job-vars",
+    "JOB_SECRETS": "Input job-secrets",
+}
+
 # Keys GitHub puts in a `secrets` context that are not the project's: the
 # job's own token, and the one secret the hand-off travels in.
 NOT_THE_PROJECTS = {"github_token", "all"}
@@ -33,7 +41,8 @@ def document(name):
         value = json.loads(raw)
     except ValueError:
         # Never print `raw`: it may be a secret.
-        print(f"::warning::{name} is not JSON; ignored")
+        print(f"::warning::{INPUTS.get(name, name)} is not valid JSON and is not used. "
+              "Compare the caller workflow with README Step 3.")
         return {}
     if not isinstance(value, dict):
         return {}
@@ -123,19 +132,20 @@ if os.environ.get("EXPORT", "true") == "true" and os.environ.get("GITHUB_ENV"):
 # change, because across organizations such a caller passes no secrets.
 if not os.environ.get("IN_SECRETS", "").strip():
     print(
-        "::warning title=Update the build workflow::This build was called the previous way "
-        "(`secrets: inherit` or named secrets). Call it with `with: vars: ${{ toJSON(vars) }}` "
-        "and `secrets: all: ${{ toJSON(secrets) }}`, and grant `permissions: contents: read, "
-        "packages: write, actions: read, id-token: write` (README, Step 3). Until then only the "
-        "secrets this job can see reach the build."
+        "::warning title=Update the caller workflow::The caller workflow passes secrets with "
+        "`secrets: inherit` or by name. Pass `with: vars: ${{ toJSON(vars) }}` and "
+        "`secrets: all: ${{ toJSON(secrets) }}` instead. Grant `permissions: contents: read, "
+        "packages: write, actions: read, id-token: write`, see README Step 3. Until then, a "
+        "repository outside the ho-nl organization builds without its secrets."
     )
 
-print(f"variables: {', '.join(sorted(variables)) or 'none'}")
-print(f"secrets:   {', '.join(sorted(secrets)) or 'none'} (values masked)")
+print(f"Variables: {', '.join(sorted(variables)) or 'none'}")
+print(f"Secrets, values masked: {', '.join(sorted(secrets)) or 'none'}")
 if skipped:
-    print(f"::warning::not valid as environment variable names, left out: {', '.join(sorted(skipped))}")
+    print(f"::warning::Skipped names that are not valid environment variable names: {', '.join(sorted(skipped))}. "
+          "Use letters, digits and underscores, not starting with a digit.")
 if exported:
-    print(f"exported to this job's environment: {len(exported)}")
+    print(f"Exported {len(exported)} values to the job environment")
 
 with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as out:
     print(f"build-env={env_path}", file=out)

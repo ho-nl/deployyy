@@ -61,16 +61,16 @@ on:
       vars:
         type: string
         default: "{}"
-        description: "The caller's variables, all of them: toJSON(vars)"
+        description: "All caller variables, as toJSON(vars)"
     secrets:
       all:
         required: false
-        description: "The caller's secrets, all of them: toJSON(secrets)"
+        description: "All caller secrets, as toJSON(secrets)"
       # The previous hand-off named this one. Still declared so such a caller
       # starts; project-values merges it in and warns to pass `all` instead.
       COMPOSER_AUTH:
         required: false
-        description: "Previous hand-off: pass `all` instead"
+        description: "Deprecated: pass all instead"
 
 jobs:
   # Which GitHub Environment the build runs in: the one named after the branch,
@@ -87,7 +87,7 @@ jobs:
       build: ${{ steps.apps.outputs.build }}
       reuse: ${{ steps.apps.outputs.reuse }}
     steps:
-      - name: Find the GitHub Environment named after the branch
+      - name: Find the branch's GitHub Environment
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
@@ -96,18 +96,18 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
         run: |
           if [ "$REF_TYPE" != "branch" ]; then
-            echo "not a branch: the repository's variables and secrets apply"; exit 0
+            echo "\"$BRANCH\" is a tag. The repository's variables and secrets apply."; exit 0
           fi
           enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
           code=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$REPO/environments/$enc" || echo 000)
           case "$code" in
-            200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
+            200) echo "GitHub Environment \"$BRANCH\" found. Its variables and secrets override the repository's."
                  echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
-            404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
-            403) echo "::warning title=Grant actions: read::The calling workflow does not grant \`actions: read\`, so the build cannot look for a GitHub Environment named \"$BRANCH\" and uses the repository's variables and secrets. Add \`actions: read\` to the caller's \`permissions\` (README, Step 3)." ;;
-            *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
+            404) echo "No GitHub Environment \"$BRANCH\". The repository's variables and secrets apply." ;;
+            403) echo "::warning title=Missing permission actions: read::The caller workflow does not grant \`actions: read\`. Values from GitHub Environment \"$BRANCH\" are not used. Add \`actions: read\` to the caller's \`permissions\`, see README Step 3." ;;
+            *)   echo "::warning::GitHub Environment lookup for \"$BRANCH\" failed with HTTP $code. The repository's variables and secrets apply. Re-run the build to use the Environment's values." ;;
           esac
 
       - name: Fetch platform build actions
@@ -121,7 +121,7 @@ jobs:
       # (DEPLOYYY_APPS, set by the deployyy operator): one build job per
       # laravel application, and none for one whose folder this push did
       # not change (its release is re-used, the reuse job below).
-      - name: Which applications to build
+      - name: Plan applications
         id: apps
         uses: ./.platform-recipes/.github/actions/applications
         with:
@@ -133,7 +133,7 @@ jobs:
     if: needs.environment.outputs.build != '[]'
     # `build` for a repository with one application, so its check keeps its
     # name; `build (<folder>)` per application otherwise.
-    name: ${{ matrix.app.label }}
+    name: Build
     strategy:
       fail-fast: false
       matrix:
@@ -152,7 +152,7 @@ jobs:
             recipes
             .github/actions
 
-      - name: The project's variables and secrets
+      - name: Load variables and secrets
         id: values
         uses: ./.platform-recipes/.github/actions/project-values
         with:
@@ -163,13 +163,13 @@ jobs:
 
       # This job's application: for a repository with several, its folder,
       # image and settings stand in for the repository's single variables.
-      - name: This application
+      - name: Set up application
         id: app
         uses: ./.platform-recipes/.github/actions/application
         with:
           app: ${{ toJSON(matrix.app) }}
 
-      - name: Application directory
+      - name: Check application directory
         id: root
         # DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's
         # root directory) is in the environment with the project's variables.
@@ -182,22 +182,22 @@ jobs:
           fi
           fail() { echo "::error title=DEPLOYYY_ROOT_DIR::$1"; exit 1; }
           [[ "$dir" =~ ^[A-Za-z0-9_.@+/-]+$ ]] ||
-            fail "The repository variable DEPLOYYY_ROOT_DIR may contain only letters, digits, / and _ . @ + -; give a path inside the repository, like src"
+            fail "DEPLOYYY_ROOT_DIR contains characters other than letters, digits and / _ . @ + -. Set the project's root directory to a path inside the repository, such as src."
           case "$dir" in
-            /*) fail "DEPLOYYY_ROOT_DIR=$dir starts with /; give a path inside the repository, like src" ;;
-            */ | *//*) fail "DEPLOYYY_ROOT_DIR=$dir has an empty segment; give a path inside the repository, like src" ;;
+            /*) fail "DEPLOYYY_ROOT_DIR=$dir starts with /. Set the project's root directory to a path inside the repository, such as src." ;;
+            */ | *//*) fail "DEPLOYYY_ROOT_DIR=$dir has an empty segment. Set the project's root directory to a path inside the repository, such as src." ;;
           esac
           IFS=/ read -ra parts <<< "$dir"
           path=""
           for part in "${parts[@]}"; do
             case "$part" in
-              . | ..) fail "DEPLOYYY_ROOT_DIR=$dir has a . or .. segment; give a path inside the repository, like src" ;;
+              . | ..) fail "DEPLOYYY_ROOT_DIR=$dir has a . or .. segment. Set the project's root directory to a path inside the repository, such as src." ;;
             esac
             path="${path:+$path/}$part"
-            [ -L "$path" ] && fail "DEPLOYYY_ROOT_DIR=$dir: $path is a symbolic link; give the directory itself"
-            [ -d "$path" ] || fail "DEPLOYYY_ROOT_DIR=$dir: there is no directory $path in this commit"
+            [ -L "$path" ] && fail "DEPLOYYY_ROOT_DIR=$dir: $path is a symbolic link. Set the project's root directory to the real directory."
+            [ -d "$path" ] || fail "DEPLOYYY_ROOT_DIR=$dir: directory $path does not exist in commit ${GITHUB_SHA::7}. Push the directory or change the project's root directory."
           done
-          echo "the application is in $dir"
+          echo "Application directory: $dir"
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
       - name: Resolve PHP and build context
@@ -221,7 +221,7 @@ jobs:
               # the newest. A constraint that names only unsupported lines
               # still builds on the newest, and composer says if it cannot.
               php = supported[0]
-          print(f"composer php constraint {constraint!r} -> PHP {php}")
+          print(f"composer.json requires php {constraint!r}. PHP {php} selected.")
 
           # The project's PHP choice (set by the deployyy operator) wins.
           chosen = ""
@@ -230,28 +230,28 @@ jobs:
               try:
                   choice = json.loads(raw)
               except ValueError:
-                  sys.exit(f"FATAL: the repository variable DEPLOYYY_PHP is not JSON: {raw!r}")
+                  sys.exit(f"FATAL: the repository variable DEPLOYYY_PHP is not valid JSON: {raw!r}. Choose the PHP version again in the console.")
               chosen = (choice.get("branches") or {}).get(os.environ["BRANCH"]) or choice.get("default") or ""
           if chosen:
               if chosen not in supported:
-                  sys.exit(f"FATAL: Laravel projects run PHP {', '.join(supported)}; PHP {chosen} is not available")
+                  sys.exit(f"FATAL: PHP {chosen} is not available for Laravel. Choose PHP {', '.join(supported)} in the console.")
               php = chosen
-              print(f"PHP {php} (chosen for this project)")
+              print(f"PHP {php}, chosen in the console")
 
           recipe = pathlib.Path(os.environ["RECIPES"]) / "laravel"
           if pathlib.Path("Dockerfile").exists():
-              print("repo-local Dockerfile present -> platform recipe NOT overlaid")
+              print("Dockerfile: the repository's own. The recipe Dockerfile is not used.")
           else:
               shutil.copy(recipe / "Dockerfile", "Dockerfile")
-              print("platform Dockerfile overlaid from recipes/laravel")
+              print("Dockerfile: recipes/laravel")
           pathlib.Path(".platform").mkdir(exist_ok=True)
           for f in sorted((recipe / "platform").iterdir()):
               dest = pathlib.Path(".platform") / f.name
               if dest.exists():
-                  print(f".platform/{f.name}: repo-local, kept")
+                  print(f".platform/{f.name}: the repository's own")
               else:
                   shutil.copy(f, dest)
-                  print(f".platform/{f.name}: overlaid from recipe")
+                  print(f".platform/{f.name}: from the recipe")
 
           out = open(os.environ["GITHUB_OUTPUT"], "a")
           print(f"php={php}", file=out)
@@ -318,7 +318,7 @@ jobs:
           image="${IMAGE,,}"
           docker buildx imagetools create -t "$image:nginx-$SHA_TAG" "$NGINX_REF"
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
-          echo "released $image:php-fpm-$SHA_TAG + nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Released $image:php-fpm-$SHA_TAG and $image:nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The same variables and secrets, for the running app: Deployyy writes
       # them into this branch's environment. Never fails the build.
@@ -337,7 +337,7 @@ jobs:
   reuse:
     needs: environment
     if: needs.environment.outputs.reuse != '[]'
-    name: ${{ matrix.app.label }}
+    name: Reuse unchanged release
     strategy:
       fail-fast: false
       matrix:
@@ -352,7 +352,7 @@ jobs:
           path: .platform-recipes
           sparse-checkout: .github/actions
 
-      - name: The project's variables and secrets
+      - name: Load variables and secrets
         id: values
         uses: ./.platform-recipes/.github/actions/project-values
         with:
@@ -370,7 +370,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Re-use the release of the push before
+      - name: Reuse the previous push's release
         env:
           IMAGE: ${{ matrix.app.image }}
           PAIRS: ${{ toJSON(matrix.app.pairs) }}
@@ -382,7 +382,7 @@ jobs:
           while read -r old new; do
             docker buildx imagetools create -t "$image:$new" "$image:$old"
           done
-          echo "nothing in $DIRECTORY changed since $FROM: released $image with its release" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$DIRECTORY is unchanged since $FROM. Released $image with the $FROM release." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Deliver variables and secrets to the environment
         uses: ./.platform-recipes/.github/actions/deliver-values

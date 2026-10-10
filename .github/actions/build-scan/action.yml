@@ -41,18 +41,18 @@ description: Build an image target, push it by digest, scan it with trivy, attac
 
 inputs:
   image:
-    description: Image name without tag, e.g. ghcr.io/owner/repo (lowercased here)
+    description: Image name without tag, such as ghcr.io/owner/repo
     required: true
   context:
     description: >-
-      Build context, relative to the repository root: the application's
-      directory (DEPLOYYY_ROOT_DIR). Its Dockerfile is the one built.
+      Build context relative to the repository root. The Dockerfile in this
+      directory is built.
     default: "."
   target:
     description: Dockerfile target
     required: true
   label:
-    description: Short name for the report (job summary heading, artifact name)
+    description: Short name for the job summary heading and the artifact name
     required: true
   build-args:
     description: Build-args, one KEY=value per line
@@ -67,13 +67,12 @@ inputs:
     description: docker/build-push-action cache-to
     default: ""
   enforce:
-    description: '"true" fails the build on a fixable CRITICAL finding; anything else only reports it'
+    description: '"true" fails the build on a fixable CRITICAL finding. Any other value reports it only.'
     default: "false"
   trivy-image:
     description: >-
-      Scanner image, pinned by digest (ghcr.io/aquasecurity/trivy 0.74.0). The
-      job's registry credentials are mounted into it, so a movable tag is not
-      acceptable here.
+      Trivy image, pinned by digest: ghcr.io/aquasecurity/trivy 0.74.0. Use a
+      digest, never a tag. The scanner receives the job's registry credentials.
     default: "ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
 
 outputs:
@@ -112,7 +111,7 @@ runs:
         IMAGE: ${{ steps.name.outputs.image }}
         DIGEST: ${{ steps.build.outputs.digest }}
       run: |
-        test -n "$DIGEST" || { echo "FATAL: the build returned no digest"; exit 1; }
+        test -n "$DIGEST" || { echo "FATAL: docker/build-push-action returned no image digest."; exit 1; }
         echo "ref=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
 
     - name: Scan ${{ inputs.label }} (trivy)
@@ -131,7 +130,7 @@ runs:
         if [ -f "$CONTEXT/.trivyignore" ]; then
           cp "$CONTEXT/.trivyignore" "$out/.trivyignore"
           ignore=(--ignorefile /out/.trivyignore)
-          echo "project .trivyignore: $(grep -cvE '^\s*(#|$)' "$CONTEXT/.trivyignore" || true) accepted finding(s)"
+          echo ".trivyignore: $(grep -cvE '^\s*(#|$)' "$CONTEXT/.trivyignore" || true) accepted findings"
         fi
         # The registry login of this job (docker/login-action) lets trivy
         # pull the private image.
@@ -145,10 +144,10 @@ runs:
           --platform linux/amd64 "${ignore[@]}" \
           --format json --output /out/report.json "$REF"; then
           if [ "$ENFORCE" = "true" ]; then
-            echo "::error::$LABEL: the image scan could not run, and this project enforces it"
+            echo "::error::$LABEL: the Trivy scan did not run. DEPLOYYY_SCAN_ENFORCE=1 requires a scan. Re-run the build."
             exit 1
           fi
-          echo "::warning::$LABEL: the image scan could not run; the build continues (report-only)"
+          echo "::warning::$LABEL: the Trivy scan did not run. The $LABEL image is not scanned. Re-run the build."
           exit 0
         fi
         python3 - "$out/report.json" "$LABEL" <<'EOF'
@@ -169,7 +168,7 @@ runs:
             lines += ["| Severity | ID | Package | Installed | Fixed in | Target |", "|---|---|---|---|---|---|"]
             for v in rows[:100]:
                 lines.append(f"| {v['Severity']} | {v.get('VulnerabilityID','')} | {v.get('PkgName','')} | "
-                             f"{v.get('InstalledVersion','')} | {v.get('FixedVersion','') or '(no fix)'} | {v['Target']} |")
+                             f"{v.get('InstalledVersion','')} | {v.get('FixedVersion','') or 'none'} | {v['Target']} |")
             if len(rows) > 100:
                 lines.append(f"\n{len(rows) - 100} more rows in the `trivy-{label}` artifact.")
         lines.append("")
@@ -177,17 +176,18 @@ runs:
         if not blocking:
             lines.append("Passed: no fixable CRITICAL finding.")
         elif enforce:
-            lines.append(f"**FAILED**: {len(blocking)} fixable CRITICAL finding(s).")
+            lines.append(f"**Failed**: {len(blocking)} fixable CRITICAL findings. Update the packages listed above, "
+                         "or accept a finding in `.trivyignore`.")
         else:
-            lines.append(f"**Would fail** once enforced: {len(blocking)} fixable CRITICAL finding(s). "
-                         "Reported only; set the repository variable DEPLOYYY_SCAN_ENFORCE=1 to enforce.")
+            lines.append(f"**Not enforced**: {len(blocking)} fixable CRITICAL findings. "
+                         "Set the repository variable DEPLOYYY_SCAN_ENFORCE=1 to fail builds on them.")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
             f.write("\n".join(lines) + "\n")
         print("\n".join(lines))
         level = "error" if enforce else "warning"
         for v in blocking:
-            print(f"::{level} title=Critical vulnerability in {label}::{v.get('VulnerabilityID')} "
-                  f"{v.get('PkgName')} {v.get('InstalledVersion')} (fixed in {v.get('FixedVersion')}) in {v['Target']}")
+            print(f"::{level} title=Critical vulnerability in {label}::{v.get('VulnerabilityID')} in "
+                  f"{v.get('PkgName')} {v.get('InstalledVersion')}, fixed in {v.get('FixedVersion')}. Target: {v['Target']}")
         sys.exit(1 if blocking and enforce else 0)
         EOF
 

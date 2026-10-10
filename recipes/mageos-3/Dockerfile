@@ -76,14 +76,14 @@ RUN set -eu; \
     find vendor app -path '*/etc/cache.xml' -print0 2>/dev/null \
       | xargs -0 -r grep -ho '<type name="[a-z_]*"' \
       | sed 's/.*name="//;s/"//' | sort -u > /tmp/cache_types.txt; \
-    test -s /tmp/cache_types.txt || { echo "FATAL: no cache.xml <type> entries found"; exit 1; }; \
+    test -s /tmp/cache_types.txt || { echo "FATAL: no etc/cache.xml declares a cache type. Check the composer install output above."; exit 1; }; \
     { echo "<?php"; \
       echo "// GENERATED AT BUILD TIME by the platform Dockerfile — do not edit."; \
       echo "// Every cache type this codebase declares; a type missing here is DISABLED."; \
       echo "return ["; \
       sed 's/^/    "/; s/$/",/' /tmp/cache_types.txt; \
       echo "];"; } > app/etc/cache_types.php; \
-    echo "cache types baked: $(wc -l < /tmp/cache_types.txt) -> $(tr '\n' ' ' < /tmp/cache_types.txt)"
+    echo "Cache types: $(wc -l < /tmp/cache_types.txt), $(tr '\n' ' ' < /tmp/cache_types.txt)"
 # Static content must be deployed for EVERY locale the store views use. The build is
 # DB-less, so Magento cannot discover the locales itself (they live in core_config_data
 # as general/locale/code per store) — they must be listed explicitly (scaffold.py's

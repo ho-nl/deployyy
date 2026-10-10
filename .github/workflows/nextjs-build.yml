@@ -67,15 +67,15 @@ on:
       vars:
         type: string
         default: "{}"
-        description: "The caller's variables, all of them: toJSON(vars)"
+        description: "All caller variables, as toJSON(vars)"
       platform:
         type: string
         default: nextjs
-        description: Which kind of project this build is for, when one repository runs several
+        description: Project type when one repository holds several projects, nextjs or graphcommerce
     secrets:
       all:
         required: false
-        description: "The caller's secrets, all of them: toJSON(secrets)"
+        description: "All caller secrets, as toJSON(secrets)"
 
 jobs:
   # Which GitHub Environment the build runs in: the one named after the branch,
@@ -92,7 +92,7 @@ jobs:
       build: ${{ steps.apps.outputs.build }}
       reuse: ${{ steps.apps.outputs.reuse }}
     steps:
-      - name: Find the GitHub Environment named after the branch
+      - name: Find the branch's GitHub Environment
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
@@ -101,18 +101,18 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
         run: |
           if [ "$REF_TYPE" != "branch" ]; then
-            echo "not a branch: the repository's variables and secrets apply"; exit 0
+            echo "\"$BRANCH\" is a tag. The repository's variables and secrets apply."; exit 0
           fi
           enc=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$BRANCH")
           code=$(curl -sS -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$REPO/environments/$enc" || echo 000)
           case "$code" in
-            200) echo "GitHub Environment \"$BRANCH\": its variables and secrets override the repository's"
+            200) echo "GitHub Environment \"$BRANCH\" found. Its variables and secrets override the repository's."
                  echo "name=$BRANCH" >> "$GITHUB_OUTPUT" ;;
-            404) echo "no GitHub Environment named \"$BRANCH\": the repository's variables and secrets apply" ;;
-            403) echo "::warning title=Grant actions: read::The calling workflow does not grant \`actions: read\`, so the build cannot look for a GitHub Environment named \"$BRANCH\" and uses the repository's variables and secrets. Add \`actions: read\` to the caller's \`permissions\` (README, Step 3)." ;;
-            *)   echo "::warning::Could not check for a GitHub Environment named \"$BRANCH\" (HTTP $code); building with the repository's variables and secrets" ;;
+            404) echo "No GitHub Environment \"$BRANCH\". The repository's variables and secrets apply." ;;
+            403) echo "::warning title=Missing permission actions: read::The caller workflow does not grant \`actions: read\`. Values from GitHub Environment \"$BRANCH\" are not used. Add \`actions: read\` to the caller's \`permissions\`, see README Step 3." ;;
+            *)   echo "::warning::GitHub Environment lookup for \"$BRANCH\" failed with HTTP $code. The repository's variables and secrets apply. Re-run the build to use the Environment's values." ;;
           esac
 
       - name: Fetch platform build actions
@@ -126,7 +126,7 @@ jobs:
       # (DEPLOYYY_APPS, set by the deployyy operator): one build job per
       # graphcommerce application, and none for one whose folder this push did
       # not change (its release is re-used, the reuse job below).
-      - name: Which applications to build
+      - name: Plan applications
         id: apps
         uses: ./.platform-recipes/.github/actions/applications
         with:
@@ -138,7 +138,7 @@ jobs:
     if: needs.environment.outputs.build != '[]'
     # `build` for a repository with one application, so its check keeps its
     # name; `build (<folder>)` per application otherwise.
-    name: ${{ matrix.app.label }}
+    name: Build
     strategy:
       fail-fast: false
       matrix:
@@ -160,7 +160,7 @@ jobs:
 
       # First: DEPLOYYY_ROOT_DIR, one of the project's variables, says where
       # the files the next steps read are.
-      - name: The project's variables and secrets
+      - name: Load variables and secrets
         id: env
         uses: ./.platform-recipes/.github/actions/project-values
         with:
@@ -171,7 +171,7 @@ jobs:
 
       # This job's application: for a repository with several, its folder,
       # image and settings stand in for the repository's single variables.
-      - name: This application
+      - name: Set up application
         id: app
         uses: ./.platform-recipes/.github/actions/application
         with:
@@ -186,7 +186,7 @@ jobs:
       # GC_MAGENTO_ENDPOINT for the build, in place of the project's own value
       # and graphcommerce.config.js, and the build first waits until it
       # answers, which also wakes a sleeping preview. Unset: nothing changes.
-      - name: Paired Magento backend
+      - name: Wait for the paired Magento backend
         if: env.DEPLOYYY_GC_MAGENTO_ENDPOINTS != ''
         env:
           BUILD_ENV_FILE: ${{ steps.env.outputs.build-env }}
@@ -198,16 +198,16 @@ jobs:
           try:
               pairs = json.loads(os.environ["DEPLOYYY_GC_MAGENTO_ENDPOINTS"])
           except ValueError:
-              print("::warning::DEPLOYYY_GC_MAGENTO_ENDPOINTS is not JSON; building with the project's own Magento endpoint")
+              print("::warning::DEPLOYYY_GC_MAGENTO_ENDPOINTS is not valid JSON. The Magento endpoint configured in the repository is used. Do not edit DEPLOYYY_GC_MAGENTO_ENDPOINTS by hand.")
               sys.exit(0)
           branch = os.environ["BRANCH"]
           endpoint = (pairs.get(branch) or pairs.get("*")) if isinstance(pairs, dict) else None
           if not endpoint:
-              print(f"no paired Magento backend for {branch}: building with the project's own endpoint")
+              print(f"No paired Magento backend for {branch}. The Magento endpoint configured in the repository is used.")
               sys.exit(0)
           if not re.fullmatch(r"https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?", endpoint):
-              raise SystemExit(f"::error title=Magento backend::DEPLOYYY_GC_MAGENTO_ENDPOINTS names {endpoint!r} for {branch}, which is not an endpoint URL")
-          print(f"Magento backend: {endpoint} (GC_MAGENTO_ENDPOINT)")
+              raise SystemExit(f"::error title=Magento backend::DEPLOYYY_GC_MAGENTO_ENDPOINTS sets {endpoint!r} for {branch}, which is not an http or https URL. Do not edit DEPLOYYY_GC_MAGENTO_ENDPOINTS by hand.")
+          print(f"GC_MAGENTO_ENDPOINT={endpoint}")
 
           # The build env file is sourced line by line: a later assignment wins.
           with open(os.environ["BUILD_ENV_FILE"], "a") as out:
@@ -224,25 +224,25 @@ jobs:
                   headers={"Content-Type": "application/json", "Accept": "application/json"})
               try:
                   with urllib.request.urlopen(req, timeout=30) as resp:
-                      last = f"HTTP {resp.status}, not a GraphQL answer"
+                      last = f"HTTP {resp.status} without GraphQL data"
                       try:
                           body = json.loads(resp.read(1 << 20) or b"{}")
                       except ValueError:
                           body = None
                       if isinstance(body, dict) and body.get("data"):
-                          print("Magento backend answers GraphQL")
+                          print(f"{endpoint} returned a GraphQL response")
                           break
               except urllib.error.HTTPError as e:
                   last = f"HTTP {e.code}"
               except (urllib.error.URLError, OSError) as e:
                   last = str(getattr(e, "reason", e))
               if time.time() > deadline:
-                  raise SystemExit(f"::error title=Magento backend::The storefront is built against {endpoint}, which did not answer GraphQL within 10 minutes ({last}). Check that its environment is running, then build again.")
-              print(f"waiting for the Magento backend ({last})")
+                  raise SystemExit(f"::error title=Magento backend::{endpoint} returned no GraphQL response within 10 minutes. Last result: {last}. Start the Magento environment, then re-run the build.")
+              print(f"Waiting for {endpoint}: {last}. Retrying in 10s.")
               time.sleep(10)
           EOF
 
-      - name: Application directory
+      - name: Check application directory
         id: root
         # DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's
         # root directory) is in the environment with the project's variables.
@@ -255,22 +255,22 @@ jobs:
           fi
           fail() { echo "::error title=DEPLOYYY_ROOT_DIR::$1"; exit 1; }
           [[ "$dir" =~ ^[A-Za-z0-9_.@+/-]+$ ]] ||
-            fail "The repository variable DEPLOYYY_ROOT_DIR may contain only letters, digits, / and _ . @ + -; give a path inside the repository, like src"
+            fail "DEPLOYYY_ROOT_DIR contains characters other than letters, digits and / _ . @ + -. Set the project's root directory to a path inside the repository, such as src."
           case "$dir" in
-            /*) fail "DEPLOYYY_ROOT_DIR=$dir starts with /; give a path inside the repository, like src" ;;
-            */ | *//*) fail "DEPLOYYY_ROOT_DIR=$dir has an empty segment; give a path inside the repository, like src" ;;
+            /*) fail "DEPLOYYY_ROOT_DIR=$dir starts with /. Set the project's root directory to a path inside the repository, such as src." ;;
+            */ | *//*) fail "DEPLOYYY_ROOT_DIR=$dir has an empty segment. Set the project's root directory to a path inside the repository, such as src." ;;
           esac
           IFS=/ read -ra parts <<< "$dir"
           path=""
           for part in "${parts[@]}"; do
             case "$part" in
-              . | ..) fail "DEPLOYYY_ROOT_DIR=$dir has a . or .. segment; give a path inside the repository, like src" ;;
+              . | ..) fail "DEPLOYYY_ROOT_DIR=$dir has a . or .. segment. Set the project's root directory to a path inside the repository, such as src." ;;
             esac
             path="${path:+$path/}$part"
-            [ -L "$path" ] && fail "DEPLOYYY_ROOT_DIR=$dir: $path is a symbolic link; give the directory itself"
-            [ -d "$path" ] || fail "DEPLOYYY_ROOT_DIR=$dir: there is no directory $path in this commit"
+            [ -L "$path" ] && fail "DEPLOYYY_ROOT_DIR=$dir: $path is a symbolic link. Set the project's root directory to the real directory."
+            [ -d "$path" ] || fail "DEPLOYYY_ROOT_DIR=$dir: directory $path does not exist in commit ${GITHUB_SHA::7}. Push the directory or change the project's root directory."
           done
-          echo "the application is in $dir"
+          echo "Application directory: $dir"
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Node and build context
@@ -285,9 +285,9 @@ jobs:
           pkg = json.load(open("package.json"))
           deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
           if "next" not in deps:
-              raise SystemExit("FATAL: package.json does not depend on `next`; this workflow builds Next.js apps.")
+              raise SystemExit("FATAL: package.json has no next dependency. nextjs-build.yml builds Next.js applications only.")
           graphcommerce = any(d.startswith("@graphcommerce/") for d in deps)
-          print(f"next {deps['next']}; GraphCommerce: {'yes' if graphcommerce else 'no'}")
+          print(f"next {deps['next']}, GraphCommerce: {'yes' if graphcommerce else 'no'}")
 
           supported = ["24", "22", "20"]
           node, source = None, None
@@ -298,7 +298,7 @@ jobs:
                   if m and m.group(1) in supported:
                       node, source = m.group(1), f
                   elif m:
-                      print(f"::warning::{f} asks for Node {m.group(1)}; supported: {supported}")
+                      print(f"::warning::{f} sets Node {m.group(1)}, which is not supported. Set Node {', '.join(supported)} in {f}.")
                   break
           def allows(rng, major):
               # A semver range on the MAJOR only: `||` alternatives of
@@ -319,16 +319,16 @@ jobs:
                   if node:
                       source = f"engines.node {engines!r}"
                   else:
-                      print(f"::warning::engines.node {engines!r} allows none of {supported}; building with Node 22")
+                      print(f"::warning::engines.node {engines!r} allows none of Node {', '.join(supported)}. Building with Node 22.")
           node = node or "22"
-          print(f"Node {node} ({source or 'default'})")
+          print(f"Node {node}, from {source or 'the default'}")
 
           recipe = pathlib.Path(os.environ["RECIPES"]) / "nextjs"
           if pathlib.Path("Dockerfile").exists():
-              print("repo-local Dockerfile present -> platform recipe NOT overlaid")
+              print("Dockerfile: the repository's own. The recipe Dockerfile is not used.")
           else:
               shutil.copy(recipe / "Dockerfile", "Dockerfile")
-              print("platform Dockerfile overlaid from recipes/nextjs")
+              print("Dockerfile: recipes/nextjs")
           platform = pathlib.Path(".platform")
           platform.mkdir(exist_ok=True)
           # The cache handler and seed live in recipes/nextjs/platform. The copies
@@ -339,10 +339,10 @@ jobs:
           for f in support:
               dest = platform / f.name
               if dest.exists():
-                  print(f".platform/{f.name}: repo-local, kept")
+                  print(f".platform/{f.name}: the repository's own")
               else:
                   shutil.copy(f, dest)
-                  print(f".platform/{f.name}: overlaid from recipe")
+                  print(f".platform/{f.name}: from the recipe")
 
           sha7 = os.environ["GITHUB_SHA"][:7]
           out = open(os.environ["GITHUB_OUTPUT"], "a")
@@ -390,7 +390,7 @@ jobs:
           cache-from: type=gha,scope=nextjs${{ steps.app.outputs.scope }}
           cache-to: type=gha,scope=nextjs${{ steps.app.outputs.scope }},mode=max,ignore-error=true
 
-      - name: Tag the release (seed first, then the app)
+      - name: Tag the release
         env:
           IMAGE: ${{ steps.app.outputs.image }}
           TAG: ${{ steps.resolve.outputs.tag }}
@@ -400,7 +400,7 @@ jobs:
           image="${IMAGE,,}"
           docker buildx imagetools create -t "$image:$TAG-cache-seed" "$SEED"
           docker buildx imagetools create -t "$image:$TAG" "$RUNTIME"
-          echo "released $image:$TAG (+ $TAG-cache-seed)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Released $image:$TAG and $image:$TAG-cache-seed" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The same variables and secrets, for the running server: Deployyy
       # writes them into this branch's environment. Never fails the build.
@@ -419,7 +419,7 @@ jobs:
   reuse:
     needs: environment
     if: needs.environment.outputs.reuse != '[]'
-    name: ${{ matrix.app.label }}
+    name: Reuse unchanged release
     strategy:
       fail-fast: false
       matrix:
@@ -434,7 +434,7 @@ jobs:
           path: .platform-recipes
           sparse-checkout: .github/actions
 
-      - name: The project's variables and secrets
+      - name: Load variables and secrets
         id: values
         uses: ./.platform-recipes/.github/actions/project-values
         with:
@@ -452,7 +452,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Re-use the release of the push before
+      - name: Reuse the previous push's release
         env:
           IMAGE: ${{ matrix.app.image }}
           PAIRS: ${{ toJSON(matrix.app.pairs) }}
@@ -464,7 +464,7 @@ jobs:
           while read -r old new; do
             docker buildx imagetools create -t "$image:$new" "$image:$old"
           done
-          echo "nothing in $DIRECTORY changed since $FROM: released $image with its release" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$DIRECTORY is unchanged since $FROM. Released $image with the $FROM release." | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Deliver variables and secrets to the environment
         uses: ./.platform-recipes/.github/actions/deliver-values

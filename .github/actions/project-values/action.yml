@@ -34,27 +34,27 @@ description: Mask, merge and export a project's GitHub variables and secrets for
 
 inputs:
   vars:
-    description: The caller's variables as JSON (`toJSON(vars)`, the workflow's `vars` input)
+    description: Caller variables as toJSON(vars), from the workflow's vars input
     default: "{}"
   secrets:
-    description: The caller's secrets as JSON (`toJSON(secrets)`, the workflow's `all` secret)
+    description: Caller secrets as toJSON(secrets), from the workflow's all secret
     default: ""
   job-vars:
-    description: This job's `toJSON(vars)` — its GitHub Environment's variables override the caller's
+    description: The job's toJSON(vars). Its GitHub Environment variables override the caller's.
     default: "{}"
   job-secrets:
-    description: This job's `toJSON(secrets)` — its GitHub Environment's secrets, and what `secrets inherit` passed
+    description: The job's toJSON(secrets), with GitHub Environment secrets and secrets passed by secrets inherit
     default: "{}"
   export:
-    description: '"true" makes every key an environment variable of the steps after this one'
+    description: '"true" exports every key to the later steps of the job'
     default: "true"
 
 outputs:
   build-env:
-    description: Path of the BuildKit secret file `build-env` (mode 600)
+    description: Path to the BuildKit secret file build-env, mode 600
     value: ${{ steps.values.outputs.build-env }}
   values:
-    description: Path of the JSON {variables, secrets} that deliver-values sends (mode 600)
+    description: Path to the {variables, secrets} JSON file for deliver-values, mode 600
     value: ${{ steps.values.outputs.values }}
 
 runs:

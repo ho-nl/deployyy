@@ -1,137 +1,148 @@
 # Changelog
 
-What changed on the deployyy platform, newest first. Everything below can be
-done from the console at [deployyy.app](https://deployyy.app), through the
-platform API, and through the MCP tools, unless an entry says otherwise.
+Changes to Deployyy, newest first. Each feature works in the console at
+[deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
+are noted per entry.
 
 ## 2026-10-10
 
 ### Magento
 
 - **Varnish caches the pages.** With Varnish in front (the default), the
-  recipe's `env.php` now also selects it as Magento's page cache
-  (`caching_application` 2). Before, the database's value applied, and a
-  database without one (or from a host without Varnish) left Magento on its
-  built-in cache: Magento then marked every page uncacheable for Varnish, so
-  each first visit of a page rendered in full. Takes effect at a project's
-  next build.
+  recipe's `env.php` now also selects it as Magento's page cache. Before, a
+  database without that setting kept Magento on its built-in cache. Magento
+  then marked every page uncacheable for Varnish, and each first visit of a
+  page rendered in full. Takes effect at a project's next build.
 
-- **Every store view's URL is the platform's.** A store-scope or
-  website-scope `base_url` in the database outranks the default the platform
-  pins, so a copied, moved or imported database kept handing out the host it
-  came from (after a project move every link and image pointed at the old,
-  dead host). The recipe's `env.php` now pins the base URL of every store
-  view (`MAGENTO_STORE_BASE_URLS`) and website (`MAGENTO_WEBSITE_BASE_URLS`)
-  the platform hands it. Below production it also makes cookies host-only and
-  lets static and media files follow the base URL, so a database from another
-  environment cannot point them elsewhere; production keeps the database's
-  cookie domain and media host. `base_link_url` stays the shop's: a headless
-  shop points it at its storefront for e-mails and the sitemap. Takes effect
-  at a project's next build; needs the platform release that reads the store
-  views (deployyy-operator `docs/URL-MAPPING.md`).
+- **Every store view uses the environment's URL.** Before, a store-scope or
+  website-scope `base_url` in the database overrode the environment's URL. A
+  copied, moved or imported database kept its old host. After a project move,
+  links and images pointed at a dead host.
+  - The recipe's `env.php` pins the base URL of every store view
+    (`MAGENTO_STORE_BASE_URLS`) and website (`MAGENTO_WEBSITE_BASE_URLS`).
+  - Outside production, cookies are host-only, and static and media URLs
+    follow the base URL.
+  - Production keeps the cookie domain and media host from the database.
+  - `base_link_url` keeps the value from the database. A headless shop points
+    it at its storefront for emails and the sitemap.
+  - Applies on a project's next build. Requires the Deployyy release that
+    reads store views.
 
-- **`env.php` reads the services by their generic names.** The recipe's
-  `env.php` (Magento Open Source and Mage-OS) now reads each service by the
-  name the project gives it: `DB_*` for the database (with `DB_PORT`),
-  `SEARCH_HOST`/`SEARCH_PORT`, `SESSION_HOST`/`SESSION_PORT`,
-  `CACHE_HOST`/`CACHE_PORT`, `QUEUE_*` and `MEDIA_*`, and no longer reads
-  `OPENSEARCH_*`, `REDIS_SESSION_*`, `REDIS_CACHE_*`, `RABBITMQ_*` or
-  `AWS_S3_*` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`. A project
-  without a queue service writes no RabbitMQ settings, so Magento uses its
-  MySQL queue; a project without a media bucket keeps its files locally.
-  Takes effect at a project's next build. Needs the platform release that
-  hands out these names (deployyy-operator `docs/SERVICES.md` §8).
+- **`env.php` reads services by their generic names.** The recipe's `env.php`
+  for Magento Open Source and Mage-OS reads:
+  - `DB_*` for the database, including `DB_PORT`
+  - `SEARCH_HOST` and `SEARCH_PORT`
+  - `SESSION_HOST` and `SESSION_PORT`
+  - `CACHE_HOST` and `CACHE_PORT`
+  - `QUEUE_*` and `MEDIA_*`
 
-- **Product images are cached in the browser for a year.** With media on
-  remote storage, every image is answered by Magento's `get.php`, and those
-  responses carried no cache headers, so a browser fetched every image again
-  on each page view. A media or static file answered through `get.php` or
-  `static.php` now carries `Cache-Control: public, max-age=31536000`, as a
-  file served from disk already did. A missing file (404) is not cached.
-  Takes effect at a project's next build.
+  `OPENSEARCH_*`, `REDIS_SESSION_*`, `REDIS_CACHE_*`, `RABBITMQ_*`,
+  `AWS_S3_*`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are no longer
+  read. Without a queue service, Magento uses its MySQL queue. Without a media
+  bucket, Magento keeps files on local storage. Applies on a project's next
+  build. Requires the Deployyy release that provides these names.
+
+- **Browsers cache product images for a year.** With media on remote storage,
+  Magento's `get.php` serves every image. Those responses had no cache
+  headers, so browsers downloaded every image on each page view. Media and
+  static files served through `get.php` or `static.php` now send
+  `Cache-Control: public, max-age=31536000`, like files served from disk. A
+  404 is not cached. Applies on a project's next build.
 
 ## 2026-10-09
 
 ### Builds
 
-- **Several applications in one repository.** A repository may hold a Magento
-  in one folder and its GraphCommerce storefront in another, each a project of
-  its own. The platform then sets the repository variable `DEPLOYYY_APPS`
-  (each application's folder, image and settings) in place of the single
-  build variables, and each build workflow builds the applications of its
-  kind, one job per application. A push builds only the applications whose
-  folder changed; the others re-use the release of the push before under the
-  new commit's tags. A manual run builds everything. Caller workflows need no
-  change, and a repository with one application builds exactly as before
-  (README, "Several applications in one repository").
+- **Several applications in one repository.** A repository can hold Magento in
+  one folder and its GraphCommerce storefront in another. Each application is
+  a separate project.
+  - The repository variable `DEPLOYYY_APPS` lists each application's folder,
+    image and settings. It replaces the single-application build variables.
+  - Each build workflow builds the applications of its type, one job per
+    application.
+  - A push builds only applications whose folder changed. The others get the
+    new commit's tags on the previous push's release.
+  - A manual run builds every application.
+  - Caller workflows need no change. A repository with one application builds
+    as before.
+
+  See README, "Several applications in one repository".
 
 ## 2026-10-08
 
 ### Builds
 
-- **A storefront is built against its own Magento backend.** A GraphCommerce
-  build used the Magento endpoint written in the repository, which could be
-  any old backend. A storefront paired with a Magento project on the platform
-  is now built against that project's environment for the branch: the same
-  branch, else the branch the pull request merges into, else the Magento
-  project's main branch. The platform publishes it as the repository variable
-  `DEPLOYYY_GC_MAGENTO_ENDPOINTS`, and `nextjs-build.yml` builds with the
-  branch's entry as `GC_MAGENTO_ENDPOINT` and waits for it to answer first,
-  which wakes a sleeping preview. Builds made by Deployyy do the same. Caller
-  workflows need no change (README, "The Magento backend a storefront is
-  built against").
+- **A storefront builds against its own Magento backend.** Before, a
+  GraphCommerce build used the Magento endpoint in the repository, which could
+  point at any backend.
+  - A storefront paired with a Magento project builds against that project's
+    environment for the branch. The order: same branch, then the pull
+    request's target branch, then the Magento project's main branch.
+  - The repository variable `DEPLOYYY_GC_MAGENTO_ENDPOINTS` holds the
+    endpoints. `nextjs-build.yml` builds with the branch's entry as
+    `GC_MAGENTO_ENDPOINT`.
+  - The build waits for the endpoint to respond first. The request wakes a
+    paused preview.
+  - Hosted builds use the same endpoint.
+  - Caller workflows need no change.
 
-- **Build an application that lives in a subfolder.** A repository whose
-  application is in `src`, `apps/web` or another folder builds from that
-  folder: the platform sets the repository variable `DEPLOYYY_ROOT_DIR` from
-  the project's root directory, and the Magento, Laravel, Next.js and
-  GraphCommerce builds read `composer.json`, `package.json`, the
-  `Dockerfile`, `.platform/` and the rest from there and use it as the build
-  context. Connecting a repository whose root holds no application now finds
-  the application one folder down. Nothing changes for a repository without
-  the variable, and caller workflows need no change (README, "Application in
-  a subfolder").
+  See README, "Magento backend for a storefront".
 
-- **A caller workflow from before 2026-10-07 builds again.** The central
-  build asked for `actions: read` and `id-token: write` itself, and GitHub
-  does not start a reusable workflow that asks for more than its caller
-  grants: a branch with the old `secrets: inherit` caller ended in
-  `startup_failure`, without a log to say why. The central jobs now take the
-  caller's grants, and the named `COMPOSER_AUTH` / `MAGENTO_AUTH_JSON` secrets
-  are declared again, so an old caller builds and its log says what to change
-  (the caller in Step 3 of the README). A missing `actions: read` or
-  `id-token: write` is a warning that names it.
+- **Build an application from a subfolder.** For an application in `src`,
+  `apps/web` or another folder:
+  - The repository variable `DEPLOYYY_ROOT_DIR` holds the project's root
+    directory.
+  - Magento, Laravel, Next.js and GraphCommerce builds read `composer.json`,
+    `package.json`, the `Dockerfile`, `.platform/` and other files from that
+    folder. The folder is the build context.
+  - Connecting a repository with no application at its root selects the
+    subfolder that holds one.
+  - Without the variable, nothing changes. Caller workflows need no change.
+
+  See README, "Application in a subfolder".
+
+- **Caller workflows from before 2026-10-07 build again.** The shared build
+  requested `actions: read` and `id-token: write`. GitHub refuses to start a
+  reusable workflow that requests more permissions than its caller grants. A
+  branch with the old `secrets: inherit` caller ended in `startup_failure`,
+  with no log.
+  - The build jobs use the caller's permissions.
+  - The named secrets `COMPOSER_AUTH` and `MAGENTO_AUTH_JSON` are declared
+    again.
+  - An old caller builds, with a warning to switch to the caller in README
+    Step 3.
+  - A missing `actions: read` or `id-token: write` produces a warning that
+    names the permission.
 
 ### Service stack
 
 - **New Magento 2.4.9 and Mage-OS 3 projects get Adobe's tested stack:**
-  RabbitMQ 4.3 and Valkey 9 (with MariaDB 12 and OpenSearch 3). These are
-  now the only queue and cache versions offered for those lines. Existing
-  projects keep the versions they run.
-- **PHP 8.5** builds on 2.4.9 and Mage-OS 3, but you cannot choose it yet:
-  the console offers it after its live trial. PHP 8.4 stays the default.
+  RabbitMQ 4.3 and Valkey 9, with MariaDB 12 and OpenSearch 3. These are the
+  only queue and cache versions offered for those lines. Existing projects
+  keep their versions.
+- **PHP 8.5** builds on 2.4.9 and Mage-OS 3. The console offers 8.5 after its
+  live trial. PHP 8.4 remains the default.
 
 ## 2026-10-07
 
 ### Varnish
 
-- **Your own VCL, from your repository.** Commit `varnish-snippet.vcl` (added
-  to the platform's VCL) or `varnish.vcl` (replaces it) at the root of the
-  repository. The next build of that branch uses it once it compiles; one
-  that does not compile is never used, and the environment's page cache says
-  why.
-- **The Magento recipe no longer adds `GraphCommerce_GraphQlVarnishPostCache`**,
-  and the repository variable `DEPLOYYY_GRAPHQL_POST_CACHE` is gone. A project
-  that wants GraphQL POST requests cached requires the module in its own
-  `composer.json`. The console no longer reports whether GraphQL POST
-  requests are cached.
+- **Your own VCL, from your repository.** Commit `varnish-snippet.vcl` to add
+  to the Deployyy VCL, or `varnish.vcl` to replace it, at the repository root.
+  The branch's next build uses the file once the VCL compiles. A VCL that
+  fails to compile is not used, and the environment's page cache shows the
+  compile error.
+- **The Magento recipe no longer adds `GraphCommerce_GraphQlVarnishPostCache`.**
+  The repository variable `DEPLOYYY_GRAPHQL_POST_CACHE` is removed. To cache
+  GraphQL POST requests, require the module in your `composer.json`. The
+  console no longer shows whether GraphQL POST requests are cached.
 
 ### Builds
 
-- **GitHub is the only place for a project's variables and secrets.** Every
-  build workflow (Magento, Laravel, Next.js/GraphCommerce) takes all of them
-  in one go, without naming any, and the caller is the same in every project
-  — from any GitHub organization:
+- **GitHub holds all project variables and secrets.** Every build workflow,
+  for Magento, Laravel, Next.js and GraphCommerce, takes all of them without
+  naming any. The caller is identical in every project and works from any
+  GitHub organization:
 
   ```yaml
   permissions:
@@ -145,101 +156,104 @@ platform API, and through the MCP tools, unless an entry says otherwise.
     all: ${{ toJSON(secrets) }}
   ```
 
-  Every secret is masked, every value is an environment variable of the build
-  (and the BuildKit secret `build-env`), and after a successful build the same
-  set reaches the branch's environment on Deployyy for the running app —
-  authenticated with the build's GitHub OIDC token, no stored credential. A
-  GitHub Environment named after the branch overrides the repository's values.
-  `COMPOSER_AUTH` is simply one of your secrets. **Update your caller
-  workflows**: the named `COMPOSER_AUTH` / `MAGENTO_AUTH_JSON` secrets are no
-  longer declared, so a caller that still passes them by name stops with
-  "secret is not defined in the referenced workflow". Values that were set in
-  the console move to GitHub: the console now lists names only.
+  - Every secret is masked in the log.
+  - Every value is an environment variable of the build and part of the
+    BuildKit secret `build-env`.
+  - After a successful build, the same values go to the branch's environment
+    for the running application. The build authenticates with its GitHub OIDC
+    token, with no stored credential.
+  - A GitHub Environment named after the branch overrides the repository's
+    values.
+  - `COMPOSER_AUTH` is a regular secret.
+  - **Update your caller workflows.** The named secrets `COMPOSER_AUTH` and
+    `MAGENTO_AUTH_JSON` are no longer declared. A caller that passes them by
+    name fails with "secret is not defined in the referenced workflow".
+  - Values set in the console move to GitHub. The console lists names only.
 - **An unapplied patch fails the build.** Every `*.patch` file in `patches/`
-  must be in the installed code after `composer install`, or the Magento and
-  Mage-OS build stops and names the file. Declare patches in `extra.patches`
-  of `composer.json`: the `extra.patches-search` folder scan skipped some
-  patches without an error (a branch install such as `dev-main`, or a header
-  naming no installed package), and the build shipped the code unpatched. A
-  file that must stay in `patches/` without being applied carries `@skip` in
-  its header.
+  must be in the installed code after `composer install`. Otherwise the
+  Magento or Mage-OS build fails and names the file.
+  - Declare patches in `extra.patches` of `composer.json`. The
+    `extra.patches-search` folder scan skipped two kinds of patch without an
+    error. Patches for a branch install such as `dev-main`, and patches whose
+    header names no installed package. Those builds shipped unpatched code.
+  - Add `@skip` to the header of a file that stays in `patches/` but must not
+    be applied.
 
 ## 2026-10-03
 
 ### Builds
 
 - **Choose your PHP version.** A Magento, Mage-OS or Laravel project picks its
-  PHP from the versions its release supports — Magento 2.4.9, 2.4.8 and
-  Mage-OS 3: 8.4 or 8.3; Magento 2.4.7: 8.3 or 8.2; Magento 2.4.6: 8.2 or
-  8.1; Laravel: 8.4, 8.3 or 8.2 — and can change it later, for the project or
-  for one environment. The platform sets the repository variable
-  `DEPLOYYY_PHP`; do not edit it by hand. A project that chose a version gets
-  images tagged with it (`php-fpm-8.3-<sha7>`, `nginx-8.3-<sha7>`), and only
-  those are released, so an environment never runs a build of another PHP.
-  After a change, the next build of each branch makes the new images: push,
-  or re-run the latest build. Without a choice nothing changes.
+  PHP version from the versions its release supports:
+  - Magento 2.4.9, 2.4.8 and Mage-OS 3: 8.4 or 8.3
+  - Magento 2.4.7: 8.3 or 8.2
+  - Magento 2.4.6: 8.2 or 8.1
+  - Laravel: 8.4, 8.3 or 8.2
+
+  Change the version later for the project or for one environment. The choice
+  is stored in the repository variable `DEPLOYYY_PHP`. Do not edit it by hand.
+  Images then carry the version in their tag, such as `php-fpm-8.3-<sha7>` and
+  `nginx-8.3-<sha7>`. Only those images are released, so an environment never
+  runs a build for another PHP version. After a change, push or re-run the
+  latest build of each branch. Without a choice, nothing changes.
 
 ## 2026-09-29
 
 ### Builds
 
 - **Next.js and GraphCommerce builds.** New reusable workflows
-  `nextjs-build.yml` and `graphcommerce-build.yml`. The build wires the
-  platform's shared page cache into your Next.js config, so your project
-  carries no cache code. A second image holds the pages the build
-  prerendered; the platform loads them into the cache, so a release starts
-  warm.
-- **Magento Open Source 2.4.6, 2.4.7, 2.4.8 and 2.4.9** build with a
-  platform recipe (PHP 8.2, 8.3, 8.4 and 8.4). Your repository no longer
-  needs its own Dockerfile for these releases.
+  `nextjs-build.yml` and `graphcommerce-build.yml`. The build adds the shared
+  page cache to your Next.js config, so your project needs no cache code. A
+  second image holds the prerendered pages. They are loaded into the cache
+  before a release serves traffic.
+- **Magento Open Source 2.4.6, 2.4.7, 2.4.8 and 2.4.9** build with a recipe,
+  on PHP 8.2, 8.3, 8.4 and 8.4. These releases need no repository Dockerfile.
 - **GraphQL POST requests are cached.** Magento builds include
   `GraphCommerce_GraphQlVarnishPostCache`. Set the repository variable
-  `DEPLOYYY_GRAPHQL_POST_CACHE` to `0` to leave it out.
-- **Every image is scanned.** A critical vulnerability that has a fix is
-  reported as a warning, and stops the release once the project sets
-  `DEPLOYYY_SCAN_ENFORCE=1`; the build reports all other findings. Each image carries an
-  SBOM and a provenance attestation.
-- **Unprivileged images.** The new Magento and Next.js images run without
-  root and without `sudo`.
+  `DEPLOYYY_GRAPHQL_POST_CACHE` to `0` to leave the module out.
+- **Every image is scanned.** A critical vulnerability with a fix produces a
+  warning. With `DEPLOYYY_SCAN_ENFORCE=1`, it blocks the release. All other
+  findings are listed in the job summary. Each image carries an SBOM and a
+  provenance attestation.
+- **Unprivileged images.** The new Magento and Next.js images run without root
+  and without `sudo`.
 
 ### Agent workspaces
 
-A workspace is a development sandbox for one of your projects, connected to a
-coding agent. It starts from a branch, or from another workspace, and pushes
-only to its own work branch.
+A workspace is a development sandbox for one project, connected to a coding
+agent. It starts from a branch or from another workspace, and pushes only to
+its own work branch.
 
 - **Start, fork, stop and review workspaces** from the project page, the API
-  or MCP. Each workspace has its own copy of the project's database, taken
-  from the preview seed.
-- **The agent speaks ACP** (Agent Client Protocol) over a WebSocket with a
-  per-workspace token. You can rotate the token at any time.
-- **Bring your own model key.** Save an Anthropic API key or a Claude
-  subscription token in team settings. The key is written once and never
-  shown back: the console records only that a key is saved, and when. No
-  workflow ever takes the key as an input, so it never ends up in a run's
-  history.
-- **Guard rails.** A workspace will not start without a saved key. Outbound
-  traffic goes through an allowlist. A workspace sleeps after 30 idle
-  minutes and wakes on the next connection. It ends after 7 days at most;
-  the branch it pushed stays.
-- **Plan limits.** Every plan now includes concurrent workspaces: Personal 1,
-  Development 2, Standard 3.
+  or MCP. Each workspace gets its own copy of the project's database, from
+  the preview seed.
+- **ACP connection.** The agent uses the Agent Client Protocol over a
+  WebSocket, with a token per workspace. Rotate the token at any time.
+- **Your own model key.** Save an Anthropic API key or a Claude subscription
+  token in team settings. The key is write-only. The console shows only that a
+  key is saved, and when. No workflow takes the key as an input, so the key
+  never appears in a run's history.
+- **Limits.** A workspace needs a saved key to start. Outbound traffic goes
+  through an allowlist. A workspace sleeps after 30 idle minutes and wakes on
+  the next connection. A workspace ends after 7 days at most. Its pushed
+  branch remains.
+- **Plan limits.** Concurrent workspaces per plan: Personal 1, Development 2,
+  Standard 3.
 
 ### Backups and restore
 
-- **See every backup** of an environment's database, both the nightly ones
-  and the ones people took, with its size and whether it can be downloaded
-  or restored.
-- **Back up now.** Take a backup on demand, the same way the nightly one is
-  taken. An owner approves it in the console.
-- **Download a backup.** The console hands your browser a link that is valid
-  for 15 minutes. The link is never stored in a workflow.
+- **Backup list.** Every backup of an environment's database, nightly and
+  manual, with its size and whether it can be downloaded or restored.
+- **Back up now.** Take an on-demand backup, made the same way as the nightly
+  one. An owner approves it in the console.
+- **Download a backup.** The download link is valid for 15 minutes and is
+  never stored in a workflow.
 - **Restore a backup** into an environment. The restore is validated before
-  it goes live, and an owner approves the switch-over.
-- **Backups are now kept per environment.** Before this change, environments
-  in the same project shared one backup location.
-- **PostgreSQL** projects get the same copy, import and version-change flows
-  as MySQL and MariaDB. Grants survive a plain PostgreSQL dump.
+  it goes live. An owner approves the switch-over.
+- **Backups per environment.** Before, environments of one project shared one
+  backup location.
+- **PostgreSQL** projects get the copy, import and version-change workflows of
+  MySQL and MariaDB. Grants survive a plain PostgreSQL dump.
 
 ## 2026-09-28
 
@@ -248,115 +262,112 @@ only to its own work branch.
 - **Capacity.** Set the minimum and maximum instances of each part of an
   environment, within your plan.
 - **Storage.** Grow an environment's storage, within your plan's limits.
-- **Pause, stop and start.** Pause an environment, or stop it, and start it
-  again later. Its data is kept either way. Pausing or stopping production
-  needs an owner.
-- **Maintenance page.** Put up a maintenance page with your own message.
-  Addresses you list still see the project, so you can check your work
-  before you take the page down. The message and the address list are kept
-  while the page is off.
-- **Protection.** Limit a staging or preview environment to a list of
-  addresses and add a password. Production always stays public. The
-  password is set on the environment's page and is never stored in a
-  workflow.
+- **Pause, stop and start.** Pause or stop an environment, and start it again
+  later. The data is kept either way. Pausing or stopping production requires
+  an owner.
+- **Maintenance page.** Show a maintenance page with your own message.
+  Listed IP addresses bypass the page, to check your work before you take the
+  page down. The message and address list are kept while the page is off.
+- **Protection.** Restrict a staging or preview environment to a list of IP
+  addresses and add a password. Production is always public. The password is
+  set on the environment's page and never stored in a workflow.
 - **Redirects.** Add and remove redirects per environment, for example
   `www.shop.example.com` to `shop.example.com`.
-- **Release history and roll back.** See every release that went live on an
-  environment, and roll back to an earlier one. The environment then stays
-  on that release until you release it again.
+- **Release history and roll back.** Every release that went live on an
+  environment, with roll back to an earlier one. The environment then stays on
+  that release until the next release.
 - **Restart** an environment.
 - **Variables.** Manage project and environment variables. The console shows
-  variable names only; values are write-only.
-- **Front switches.** Turn the content delivery network, the page cache and
-  the firewall on or off per project, as far as the project's platform
-  offers each one.
-- **Previews on or off** per project. Turning them off removes every preview
-  and its data.
+  names only. Values are write-only.
+- **Front switches.** Turn the content delivery network, page cache and
+  firewall on or off per project. Availability depends on the project type.
+- **Previews on or off** per project. Turning previews off removes every
+  preview and its data.
 
 ### Domains
 
-- **Add a domain you own** to a persistent environment. The console tells
-  you the DNS record to set and shows when the domain is live. The first
-  domain becomes the environment's main address, which every link and email
-  the project sends uses.
+- **Add a domain you own** to a persistent environment. The console shows the
+  DNS record to set, and when the domain is live. The first domain becomes the
+  environment's main address. Every link and email from the project uses that
+  address.
 - **Remove a domain** from an environment.
 
 ### New project types
 
-- **Laravel.** Laravel projects run on the platform, with a build recipe in
-  this repository (`recipes/laravel`) and a reusable build workflow.
-- **Windmill.** Windmill runs as a packaged platform, on PostgreSQL with
-  scheduled backups.
-- **Elasticsearch** and **PostgreSQL** are available as data services,
-  alongside MySQL/MariaDB, OpenSearch, Redis and RabbitMQ.
-- **Magento and Laravel** projects can put a content delivery network in
-  front of their environments.
+- **Laravel**, with a build recipe in this repository (`recipes/laravel`) and a
+  reusable build workflow.
+- **Windmill**, as a packaged application on PostgreSQL with scheduled
+  backups.
+- **Elasticsearch** and **PostgreSQL** data services, next to MySQL, MariaDB,
+  OpenSearch, Redis and RabbitMQ.
+- **Content delivery network** in front of Magento and Laravel environments.
 
-### Seeing what your project is doing
+### Project activity
 
-- **Environment canvas.** One view of what runs your project and what it
-  uses.
-- **Output and logs.** When setup or a deploy fails, the console shows the
-  end of your project's own output from the failing step. It also offers
-  full log search over a time range, and live log streaming.
-- **Load.** How busy an environment is, as a page, through the API, over
-  MCP, and live.
+- **Environment canvas.** One view of what runs your project and what it uses.
+- **Output and logs.** When setup or a deploy fails, the console shows your
+  project's last output lines from the failing step. Search full logs
+  over a time range, or stream them live.
+- **Load.** How busy an environment is, on a page, through the API, over MCP,
+  and live.
 
 ### Console
 
-- Members see the API documentation for the platform, the workflows and MCP.
-- MCP tools are marked when they only read.
-- The console uses one word per concept. A project is *stopped* and
-  *restored*, not deleted. A build that went live is a *release*.
+- Members see the API documentation for the Deployyy API, the workflows and
+  MCP.
+- Read-only MCP tools are marked.
+- One word per concept. A project is *stopped* and *restored*, not deleted. A
+  build that went live is a *release*.
 
 ## 2026-09-27
 
 - **Monthly usage and billing.** Each team sees its projects' monthly usage,
-  measured per minute from the resources they actually use, and can
-  authorize a payment method for metered billing. Failed payments are
-  retried.
-- **Support and feedback** go through workflows that stay open until the
-  support issue is closed.
-- **One workflow engine.** A workflow started in the console, through the
-  API or through MCP runs the same way everywhere. It keeps its progress
-  across restarts, and its questions can be answered in chat.
+  measured per minute from actual resource use. Authorize a payment method for
+  metered billing. Failed payments are retried.
+- **Support and feedback** run as workflows that stay open until the support
+  issue is closed.
+- **One workflow engine.** A workflow runs the same way from the console, the
+  API or MCP. Progress survives restarts. Questions can be answered in chat.
 - **Backup storage** is measured per project.
 
-## 2026-09-24 – 2026-09-26
+## 2026-09-24 to 2026-09-26
 
-- **Database conversions** (for example MySQL to MariaDB) run as verified
-  migrations. They need an approval, and they can be stopped, resumed or
-  retried.
-- **The main environment is explicit** for every project.
-- **Custom domains on the content delivery network** are handed over once
-  the edge itself confirms the domain.
-- **Console sign-in** stays on the public host and survives the content
+- **Database conversions**, for example MySQL to MariaDB, run as verified
+  migrations. They need an approval, and can be stopped, resumed or retried.
+- **Every project has an explicit main environment.**
+- **Custom domains on the content delivery network** switch over after the
+  edge confirms the domain.
+- **Console sign-in** stays on the public host and works behind the content
   delivery network.
 
 ## Build recipes (this repository)
 
-- `recipes/nextjs` + `nextjs-build.yml` / `graphcommerce-build.yml`: Next.js
-  standalone image (`sha-<sha7>`, uid 1001) and a cache-seed image
-  (`sha-<sha7>-cache-seed`). The Next config is wrapped at build time with
+- `recipes/nextjs` with `nextjs-build.yml` and `graphcommerce-build.yml`:
+  Next.js standalone image `sha-<sha7>`, uid 1001, and a cache-seed image
+  `sha-<sha7>-cache-seed`. The build wraps the Next config with
   `cacheHandler`, `cacheMaxMemorySize: 0`, `output: 'standalone'` and the
-  commit as build ID. The seed covers App Router and Pages Router prerenders
-  on Next 14, 15 and 16.
-- `graphcommerce/cache-handler.mjs`: no longer makes Turbopack (Next 16)
-  trace the whole project into the standalone output.
-- `recipes/magento`: Magento Open Source 2.4.6–2.4.9 (lines `magento-246` …
-  `magento-249`). Cache types from the installed modules, a primary key for
-  `queue_poison_pill` when the tree has none, `patches/` before
-  `composer install`, runtime minification pinned to what the build
-  deployed, the GraphQL POST cache module, php.ini `production`.
-- `recipes/magento` images run as uid 1000 (php-fpm, no `sudo`) and on
-  `nginx-unprivileged`; see `docs/PSS-RESTRICTED.md`.
-- All reusable build workflows push by digest, scan with trivy, and tag only
-  after every image passed; SBOM + provenance (`mode=max`) on every image.
-- `lint.yml`: actionlint, shellcheck, syntax checks and a drift check for the
-  support files that `recipes/magento` shares with `recipes/mageos-3`.
+  commit as build ID. The seed covers App Router and Pages Router prerenders on
+  Next 14, 15 and 16.
+- `graphcommerce/cache-handler.mjs`: Turbopack on Next 16 no longer traces the
+  whole project into the standalone output.
+- `recipes/magento`: Magento Open Source 2.4.6 to 2.4.9, lines `magento-246`
+  to `magento-249`, with:
+  - cache types from the installed modules
+  - an optional primary key for `queue_poison_pill`
+  - `patches/` before `composer install`
+  - runtime minification matched to the build
+  - the GraphQL POST cache module
+  - php.ini `production`
+- `recipes/magento` images run as uid 1000, with php-fpm without `sudo`, and
+  on `nginx-unprivileged`. See `docs/PSS-RESTRICTED.md`.
+- All reusable build workflows push by digest, scan with Trivy, and tag only
+  after every image passes. Every image carries an SBOM and provenance with
+  `mode=max`.
+- `lint.yml`: actionlint, shellcheck, syntax checks, and a drift check for the
+  support files `recipes/magento` shares with `recipes/mageos-3`.
 - `recipes/laravel`: new Laravel build recipe and reusable workflow.
-- `mageos-3`: an empty `VARNISH_HOST` now means Magento's own page cache.
-- The recipe copies your project's `patches/` before `composer install`, so
+- `mageos-3`: an empty `VARNISH_HOST` selects Magento's built-in page cache.
+- The recipe copies your `patches/` before `composer install`, so
   composer-patches applies them at install time.
-- PHP and nginx build caches are kept in separate cache scopes.
-- A missing `COMPOSER_AUTH` is a valid state and no longer fails the build.
+- PHP and nginx build caches use separate cache scopes.
+- A missing `COMPOSER_AUTH` no longer fails the build.

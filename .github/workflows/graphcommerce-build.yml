@@ -37,11 +37,11 @@ on:
       vars:
         type: string
         default: "{}"
-        description: "The caller's variables, all of them: toJSON(vars)"
+        description: "All caller variables, as toJSON(vars)"
     secrets:
       all:
         required: false
-        description: "The caller's secrets, all of them: toJSON(secrets)"
+        description: "All caller secrets, as toJSON(secrets)"
 
 jobs:
   build:

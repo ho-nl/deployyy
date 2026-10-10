@@ -8,6 +8,14 @@ platform API, and through the MCP tools, unless an entry says otherwise.
 
 ### Magento
 
+- **Varnish caches the pages.** With Varnish in front (the default), the
+  recipe's `env.php` now also selects it as Magento's page cache
+  (`caching_application` 2). Before, the database's value applied, and a
+  database without one (or from a host without Varnish) left Magento on its
+  built-in cache: Magento then marked every page uncacheable for Varnish, so
+  each first visit of a page rendered in full. Takes effect at a project's
+  next build.
+
 - **Every store view's URL is the platform's.** A store-scope or
   website-scope `base_url` in the database outranks the default the platform
   pins, so a copied, moved or imported database kept handing out the host it

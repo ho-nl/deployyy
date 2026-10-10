@@ -130,14 +130,17 @@ if (($e('QUEUE_HOST') ?? '') !== '') {
 }
 
 // The page cache in front of this environment (App.spec.front.pageCache).
-// Varnish on — the default — is where Magento sends its purges. Off, the
-// operator leaves VARNISH_HOST empty: there is no HTTP cache host to purge,
-// and Magento serves its built-in full page cache (caching_application 1),
-// pinned here so a database that says "Varnish" cannot leave the shop
-// without any page cache at all.
+// Varnish on (the default) caches the pages and gets Magento's purges
+// (caching_application 2). Off, the operator leaves VARNISH_HOST empty and
+// Magento serves its built-in full page cache (caching_application 1). The
+// setting is pinned both ways, because the database's own value names the
+// cache of the host it came from: the built-in cache behind Varnish marks
+// every page uncacheable for Varnish, and Varnish without Varnish leaves the
+// shop without any page cache.
 $varnishHost = $e('VARNISH_HOST', 'varnish-service');
 if ($varnishHost !== '') {
     $config['http_cache_hosts'] = [['host' => $varnishHost, 'port' => 80]];
+    $config['system']['default']['system']['full_page_cache']['caching_application'] = '2';
 } else {
     $config['system']['default']['system']['full_page_cache']['caching_application'] = '1';
 }

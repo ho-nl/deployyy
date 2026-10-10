@@ -183,8 +183,7 @@ if (($e('MAGENTO_CONSUMERS_WAIT_FOR_MESSAGES') ?? '') !== '') {
 // env to a new hostname (e.g. at cutover).
 //
 // Guarded: an unset var must not write a null base_url, which breaks Magento.
-// NB only default scope is pinned — a store/website-scoped core_config_data row for the
-// same path still wins, so check for one before relying on this.
+// This is the default scope; the store and website scopes follow below.
 if ($e('MAGENTO_BASE_URL')) {
     $config['system']['default']['web'] = [
         'unsecure' => ['base_url' => $e('MAGENTO_BASE_URL')],
@@ -197,25 +196,56 @@ if ($e('MAGENTO_BASE_URL')) {
     ];
 }
 
-// Per-store base_urls — classic multi-domain multi-store. The operator emits a
-// JSON object {store_view_code: base_url} (MAGENTO_STORE_BASE_URLS) from the
-// Environment's storeDomains; each lands in the `stores` scope so that store
-// view generates its URLs on its own domain. env.php's `system` section
-// outranks core_config_data at every scope, so this pins the store base_url
-// regardless of the imported database. The paired nginx Host->MAGE_RUN_CODE map
-// makes a Luma frontend resolve the store natively; a headless GraphCommerce
-// frontend ignores the run-code but still needs these for correct absolute URLs.
-if ($e('MAGENTO_STORE_BASE_URLS')) {
-    $storeBaseUrls = json_decode($e('MAGENTO_STORE_BASE_URLS'), true);
-    if (is_array($storeBaseUrls)) {
-        foreach ($storeBaseUrls as $storeCode => $baseUrl) {
-            if (!is_string($storeCode) || !is_string($baseUrl) || $baseUrl === '') {
-                continue;
-            }
-            $config['system']['stores'][$storeCode]['web'] = [
-                'unsecure' => ['base_url' => $baseUrl],
-                'secure' => ['base_url' => $baseUrl],
-            ];
+// Per-scope base URLs. A store-scope or website-scope `web/*/base_url` row in
+// core_config_data outranks the default scope above, so a copied, moved or imported
+// database hands out the host it came from on every store view that carries one. The
+// operator reads every store view and website from the database and emits a JSON
+// object per scope, {code: base_url}: MAGENTO_STORE_BASE_URLS (a store view's own host,
+// a store host on a non-production environment, else the canonical base URL) and
+// MAGENTO_WEBSITE_BASE_URLS (the website's default store view's). env.php's `system`
+// section outranks core_config_data at every scope; a code the database does not hold
+// is ignored. The paired nginx Host->MAGE_RUN_CODE map makes a Luma frontend resolve a
+// store view with its own host natively; a headless GraphCommerce frontend ignores the
+// run code but still needs these for correct absolute URLs.
+//
+// base_link_url is left to the database: a headless shop points it at its storefront
+// (customer e-mails, password reset links and the sitemap link to the frontend, not
+// to this backend).
+foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_BASE_URLS'] as $scope => $var) {
+    $baseUrls = json_decode((string) $e($var, ''), true);
+    if (!is_array($baseUrls)) {
+        continue;
+    }
+    foreach ($baseUrls as $code => $baseUrl) {
+        if (!is_string($code) || !is_string($baseUrl) || $baseUrl === '') {
+            continue;
+        }
+        $config['system'][$scope][$code]['web']['unsecure']['base_url'] = $baseUrl;
+        $config['system'][$scope][$code]['web']['secure']['base_url'] = $baseUrl;
+    }
+}
+
+// Below production (the operator sets MAGENTO_COOKIE_DOMAIN, empty, on every
+// non-production environment) the environment serves platform hosts only, so the
+// database's host-specific settings from another environment must not apply:
+// - cookies are host-only: a cookie domain carried over makes the browser drop every
+//   cookie (no session, no cart, no admin login);
+// - static and media follow the pinned base URL (an empty base is derived from the
+//   scope's base_url; the platform serves /static and /media on every host it routes),
+//   where a copied database names another environment's or a production CDN's host.
+// Unset, as on production, the database's values stand: a shop may share cookies
+// across its own subdomains or serve media from a host of its own.
+$cookieDomain = getenv('MAGENTO_COOKIE_DOMAIN');
+if ($cookieDomain !== false) {
+    $hostOnly = [
+        'cookie' => ['cookie_domain' => $cookieDomain],
+        'unsecure' => ['base_static_url' => '', 'base_media_url' => ''],
+        'secure' => ['base_static_url' => '', 'base_media_url' => ''],
+    ];
+    $config['system']['default']['web'] = array_replace_recursive($config['system']['default']['web'] ?? [], $hostOnly);
+    foreach (['websites', 'stores'] as $scope) {
+        foreach (array_keys($config['system'][$scope] ?? []) as $code) {
+            $config['system'][$scope][$code]['web'] = array_replace_recursive($config['system'][$scope][$code]['web'] ?? [], $hostOnly);
         }
     }
 }

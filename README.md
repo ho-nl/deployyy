@@ -313,8 +313,6 @@ When your project installs
 [`graphcommerce/magento-fast-boot`](https://github.com/graphcommerce-org/magento2-GraphCommerce_FastBoot),
 the recipes switch it on:
 
-- `env.php` enables its GraphQL schema cache in the environment's cache Redis,
-  with the host of the base URL as the installation.
 - The web container runs `bin/magento fastboot:prepare` before PHP-FPM starts.
   If it fails, FastBoot fills its caches on the first requests.
 - PHP-FPM preloads the classes listed in `preload-classes.txt` at the root of

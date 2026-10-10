@@ -9,11 +9,13 @@ are noted per entry.
 ### Magento
 
 - **FastBoot is switched on when a project installs it.** With
-  `graphcommerce/magento-fast-boot` in the project, `env.php` enables its
-  GraphQL schema cache in the environment's Redis, the web container runs
+  `graphcommerce/magento-fast-boot` in the project, the web container runs
   `fastboot:prepare` before PHP-FPM starts, and PHP-FPM preloads the classes
   of the project's `preload-classes.txt` (see README, FastBoot). Takes effect
   at a project's next build.
+  FastBoot keeps its GraphQL schema cache under Magento's own cache, with no
+  setting of its own, from its release of 2026-10-10. A project on an older
+  FastBoot keeps that cache off until it updates the package.
 
 - **Varnish caches the pages.** With Varnish in front (the default), the
   recipe's `env.php` now also selects it as Magento's page cache. Before, a

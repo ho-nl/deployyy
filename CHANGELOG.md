@@ -4,6 +4,18 @@ What changed on the deployyy platform, newest first. Everything below can be
 done from the console at [deployyy.app](https://deployyy.app), through the
 platform API, and through the MCP tools, unless an entry says otherwise.
 
+## 2026-10-10
+
+### Magento
+
+- **Product images are cached in the browser for a year.** With media on
+  remote storage, every image is answered by Magento's `get.php`, and those
+  responses carried no cache headers, so a browser fetched every image again
+  on each page view. A media or static file answered through `get.php` or
+  `static.php` now carries `Cache-Control: public, max-age=31536000`, as a
+  file served from disk already did. A missing file (404) is not cached.
+  Takes effect at a project's next build.
+
 ## 2026-10-09
 
 ### Builds

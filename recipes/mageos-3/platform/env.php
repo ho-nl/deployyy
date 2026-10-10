@@ -235,14 +235,6 @@ foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_
 //   where a copied database names another environment's or a production CDN's host.
 // Unset, as on production, the database's values stand: a shop may share cookies
 // across its own subdomains or serve media from a host of its own.
-// FastBoot (graphcommerce/magento-fast-boot), when the project installs it: the GraphQL
-// schema in the environment's cache Redis, shared by its web, cron and job processes.
-// The base URL's host keeps two environments apart; without the package nothing reads it.
-$config['fastboot']['schema_l1'] = [
-    'enabled' => true,
-    'installation' => parse_url((string)$e('MAGENTO_BASE_URL', ''), PHP_URL_HOST) ?: 'deployyy',
-];
-
 $cookieDomain = getenv('MAGENTO_COOKIE_DOMAIN');
 if ($cookieDomain !== false) {
     $hostOnly = [

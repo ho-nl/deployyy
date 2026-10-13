@@ -370,8 +370,11 @@ The queue and the media bucket are optional. Without `QUEUE_HOST`, Magento
 uses its MySQL queue. Without `MEDIA_BUCKET`, Magento keeps files on local
 storage.
 
-**`env.php` is the platform's.** The build installs the recipe's `env.php` at
-`.platform/env.php` and replaces a repository's own. Set shop configuration
+**`env.php` is the platform's.** A repository cannot bring its own. The build
+installs the recipe's `env.php` at `.platform/env.php`, replacing a committed
+one with a warning to delete it. A repository with its own `Dockerfile` must copy
+`.platform/env.php` to `/var/www/html/app/etc/env.php`; the build fails when the
+image's `env.php` differs. Set shop configuration
 that differs per environment as a `CONFIG__…` variable instead, for example
 `CONFIG__DEFAULT__SMTP__CONFIGURATION_OPTION__HOST` or
 `CONFIG__WEBSITES__<code>__WEB__SECURE__BASE_URL`: Magento reads these like an

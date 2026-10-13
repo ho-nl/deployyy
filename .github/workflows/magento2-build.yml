@@ -256,7 +256,7 @@ jobs:
           RECIPES: ${{ github.workspace }}/.platform-recipes/recipes
         run: |
           python3 - <<'EOF'
-          import datetime, json, os, pathlib, shutil, sys
+          import datetime, hashlib, json, os, pathlib, shutil, sys
 
           # D2: the line is DERIVED from composer.json, never declared.
           # (deployyy.json's receiver-era `base` field is ignored on purpose.)
@@ -358,12 +358,14 @@ jobs:
               # env.php is the platform's, always: it reads the services, the
               # base URLs and the consumer and page cache settings the operator
               # composes. A repository's own .platform/env.php is replaced; a
-              # repository Dockerfile that copies .platform/env.php gets this one.
+              # repository Dockerfile is checked after the build (the step
+              # "Check the image's env.php").
               if pathlib.Path(".platform/env.php").exists():
-                  print(".platform/env.php: from the recipe (the repository's own is replaced)")
-              else:
-                  print(".platform/env.php: from the recipe")
+                  print("::warning file=.platform/env.php::The platform provides env.php. "
+                        "This file is replaced at build; delete it from the repository.")
+              print(".platform/env.php: from the recipe")
               shutil.copy(recipe / "platform" / "env.php", ".platform/env.php")
+              env_php_sha = hashlib.sha256(pathlib.Path(".platform/env.php").read_bytes()).hexdigest()
           # PHP comes from the line only when the platform Dockerfile builds: a
           # repo-local Dockerfile keeps its own PHP_VERSION default — unless
           # the project CHOSE a version, which the tags will name, so the
@@ -392,6 +394,10 @@ jobs:
           # (an empty line is skipped; `PHP_VERSION=` would blank its default).
           print(f"php_arg={'PHP_VERSION=' + php if php else ''}", file=out)
           print(f"locales={locales}", file=out)
+          # A repository Dockerfile on a recipe line: its image's env.php is
+          # checked against the recipe's after the build.
+          print(f"env_php_check={'true' if local_dockerfile and recipe.is_dir() else 'false'}", file=out)
+          print(f"env_php_sha={env_php_sha if recipe.is_dir() else ''}", file=out)
           # The release tag: php-fpm-<tag> / nginx-<tag>. A chosen PHP is in
           # it, BEFORE the sha (the operator reads the sha off the end).
           sha7 = os.environ['GITHUB_SHA'][:7]
@@ -446,6 +452,29 @@ jobs:
             type=gha,scope=php-fpm${{ steps.app.outputs.scope }}
             type=gha
           cache-to: type=gha,scope=php-fpm${{ steps.app.outputs.scope }},mode=max,ignore-error=true
+
+      # A repository Dockerfile decides where app/etc/env.php comes from. Only
+      # the platform's is allowed (README, Services); the recipe Dockerfile
+      # always copies it, so only a repository Dockerfile is checked.
+      - name: Check the image's env.php
+        if: steps.resolve.outputs.env_php_check == 'true'
+        env:
+          PHP_REF: ${{ steps.php.outputs.ref }}
+          WANT: ${{ steps.resolve.outputs.env_php_sha }}
+        run: |
+          docker pull --quiet "$PHP_REF" >/dev/null
+          cid=$(docker create "$PHP_REF")
+          trap 'docker rm "$cid" >/dev/null' EXIT
+          if ! docker cp "$cid:/var/www/html/app/etc/env.php" image-env.php 2>/dev/null; then
+            echo "::error::The image has no /var/www/html/app/etc/env.php. Copy .platform/env.php there in the Dockerfile."
+            exit 1
+          fi
+          got=$(sha256sum image-env.php | cut -d' ' -f1)
+          if [ "$got" != "$WANT" ]; then
+            echo "::error::The image's app/etc/env.php is not the platform's. Copy .platform/env.php to app/etc/env.php in the Dockerfile."
+            exit 1
+          fi
+          echo "app/etc/env.php is the platform's."
 
       - name: Build + scan nginx
         id: nginx

@@ -15,11 +15,11 @@ are noted per entry.
   consumer process that ran four. Takes effect at a project's next build, once
   the operator runs the new consumer process.
 
-- **`env.php` is always the recipe's.** The build replaces a repository's own
-  `.platform/env.php`, also for a repository with its own Dockerfile that
-  copies `.platform/env.php`. Move per-environment shop configuration to
-  `CONFIG__…` variables (see README, Services). Takes effect at a project's
-  next build.
+- **`env.php` is always the platform's.** A repository cannot bring its own:
+  the build replaces a committed `.platform/env.php` and warns to delete it. A
+  build with its own Dockerfile fails unless the image's `app/etc/env.php` is
+  the platform's. Move per-environment shop configuration to `CONFIG__…`
+  variables (see README, Services). Takes effect at a project's next build.
 
 ## 2026-10-10
 

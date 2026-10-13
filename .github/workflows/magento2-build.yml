@@ -341,17 +341,29 @@ jobs:
               # recipe gets none: before that recipe existed those repos (the
               # demo ladder) built exactly as committed, and a new file in
               # .platform/ would change their image without anyone asking.
+              # env.php is the exception, below.
+              pathlib.Path(".platform").mkdir(exist_ok=True)
               if local_dockerfile and recipe_id == "magento":
                   print("The repository has its own Dockerfile. Support files from recipes/magento are not copied.")
               else:
-                  pathlib.Path(".platform").mkdir(exist_ok=True)
                   for f in sorted((recipe / "platform").iterdir()):
                       dest = pathlib.Path(".platform") / f.name
+                      if f.name == "env.php":
+                          continue
                       if dest.exists():
                           print(f".platform/{f.name}: the repository's own")
                       else:
                           shutil.copy(f, dest)
                           print(f".platform/{f.name}: from the recipe")
+              # env.php is the platform's, always: it reads the services, the
+              # base URLs and the consumer and page cache settings the operator
+              # composes. A repository's own .platform/env.php is replaced; a
+              # repository Dockerfile that copies .platform/env.php gets this one.
+              if pathlib.Path(".platform/env.php").exists():
+                  print(".platform/env.php: from the recipe (the repository's own is replaced)")
+              else:
+                  print(".platform/env.php: from the recipe")
+              shutil.copy(recipe / "platform" / "env.php", ".platform/env.php")
           # PHP comes from the line only when the platform Dockerfile builds: a
           # repo-local Dockerfile keeps its own PHP_VERSION default — unless
           # the project CHOSE a version, which the tags will name, so the

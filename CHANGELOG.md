@@ -4,6 +4,23 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-13
+
+### Magento
+
+- **Every queue consumer runs, from the consumer process.** The recipe's
+  `env.php` turns off Magento's cron consumer runner and lets an idle consumer
+  exit; the consumer process starts every consumer in turn (deployyy-operator
+  `docs/MAGENTO-PROCESSES.md`). Before, cron started every consumer next to a
+  consumer process that ran four. Takes effect at a project's next build, once
+  the operator runs the new consumer process.
+
+- **`env.php` is always the platform's.** A repository cannot bring its own:
+  the build replaces a committed `.platform/env.php` and warns to delete it. A
+  build with its own Dockerfile fails unless the image's `app/etc/env.php` is
+  the platform's. Move per-environment shop configuration to `CONFIG__…`
+  variables (see README, Services). Takes effect at a project's next build.
+
 ## 2026-10-10
 
 ### Magento

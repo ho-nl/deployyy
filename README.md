@@ -368,8 +368,18 @@ variables start with its name. The default services are `db`, `search`,
 
 The queue and the media bucket are optional. Without `QUEUE_HOST`, Magento
 uses its MySQL queue. Without `MEDIA_BUCKET`, Magento keeps files on local
-storage. A repository with its own `.platform/env.php` must read the same
-names.
+storage.
+
+**`env.php` is the platform's.** A repository cannot bring its own. The build
+installs the recipe's `env.php` at `.platform/env.php`, replacing a committed
+one with a warning to delete it. A repository with its own `Dockerfile` must copy
+`.platform/env.php` to `/var/www/html/app/etc/env.php`; the build fails when the
+image's `env.php` differs. Set shop configuration
+that differs per environment as a `CONFIG__…` variable instead, for example
+`CONFIG__DEFAULT__SMTP__CONFIGURATION_OPTION__HOST` or
+`CONFIG__WEBSITES__<code>__WEB__SECURE__BASE_URL`: Magento reads these like an
+`env.php` setting and locks the field in the admin. Configuration that is the
+same everywhere belongs in `app/etc/config.php`.
 
 A release line without a recipe fails the build, with the list of supported
 lines. Adobe Commerce has no recipe. For Adobe Commerce, add your own `Dockerfile`.

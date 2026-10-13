@@ -510,6 +510,19 @@ If your `next.config` sets its own `cacheHandler`, the build keeps it and logs
 a warning. `output: 'export'` fails the build, because environments run a
 Next.js server.
 
+The shared cache is on or off per project in the console. Switching it needs no
+new build: the operator adds or removes `CACHE_DIR` and the `/cache` storage and
+restarts the environment, and the handler follows `CACHE_DIR`.
+
+**A repository with its own `Dockerfile`** gets none of the above, so the shared
+cache stores nothing until the build carries a handler. Add once, then build:
+
+- `cacheHandler` pointing at a handler that writes to `process.env.CACHE_DIR`
+  when it is set. Copy
+  [`recipes/nextjs/platform/cache-handler.mjs`](recipes/nextjs/platform/cache-handler.mjs)
+  next to your `next.config` and make sure it is in the standalone output.
+- `cacheMaxMemorySize: 0`, so no instance serves a stale copy from memory.
+
 A `Dockerfile` in your repository replaces the recipe. A file in `.platform/`
 replaces the recipe file with the same name.
 

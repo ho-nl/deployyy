@@ -433,8 +433,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The first commit of a project cloned from a template holds the
+      # template commit's files (deployyy-operator adds a Deployyy-Template
+      # trailer). When the template's release of that commit was built with
+      # the same locales and PHP, its images become this commit's release and
+      # the build below is skipped. Anything else builds.
+      - name: Release with the template's images
+        id: template
+        uses: ./.platform-recipes/.github/actions/template-release
+        with:
+          image: ${{ steps.app.outputs.image }}
+          sha-tag: ${{ steps.resolve.outputs.sha_tag }}
+          locales: ${{ steps.resolve.outputs.locales }}
+          php-arg: ${{ steps.resolve.outputs.php_arg }}
+          directory: ${{ steps.root.outputs.dir }}
+
       - name: Build + scan php-fpm
         id: php
+        if: steps.template.outputs.released != 'true'
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
           image: ${{ steps.app.outputs.image }}
@@ -457,7 +473,7 @@ jobs:
       # the platform's is allowed (README, Services); the recipe Dockerfile
       # always copies it, so only a repository Dockerfile is checked.
       - name: Check the image's env.php
-        if: steps.resolve.outputs.env_php_check == 'true'
+        if: steps.resolve.outputs.env_php_check == 'true' && steps.template.outputs.released != 'true'
         env:
           PHP_REF: ${{ steps.php.outputs.ref }}
           WANT: ${{ steps.resolve.outputs.env_php_sha }}
@@ -478,6 +494,7 @@ jobs:
 
       - name: Build + scan nginx
         id: nginx
+        if: steps.template.outputs.released != 'true'
         uses: ./.platform-recipes/.github/actions/build-scan
         with:
           image: ${{ steps.app.outputs.image }}
@@ -499,6 +516,7 @@ jobs:
       # The operator deploys a commit once BOTH tags exist, so tags are set
       # only after both images passed their scan.
       - name: Tag the release
+        if: steps.template.outputs.released != 'true'
         env:
           IMAGE: ${{ steps.app.outputs.image }}
           SHA_TAG: ${{ steps.resolve.outputs.sha_tag }}

@@ -1,0 +1,52 @@
+# Release a template clone's first commit with the template's images.
+#
+# A project cloned from a Deployyy template starts with one commit that holds
+# the template commit's files and names it in a `Deployyy-Template:` trailer.
+# When the template's release for that commit was built with the same
+# settings, its images are copied to this commit's tags and the build is
+# skipped: the shop can install about a minute after the clone instead of
+# after a full build. Every other commit, and any doubt, builds as usual
+# (release.py lists the checks). Never fails the build.
+#
+# Needs a docker login to ghcr.io with push access to `image`, and read access
+# to the template's image package (public).
+
+name: template-release
+description: Copy a template's release to a template clone's first commit
+
+inputs:
+  image:
+    description: Image name without tag, such as ghcr.io/owner/repo
+    required: true
+  sha-tag:
+    description: The release tag after php-fpm-/nginx-, as the build would tag it
+    required: true
+  locales:
+    description: PLATFORM_LOCALES this build would pass
+    required: true
+  php-arg:
+    description: The PHP_VERSION build-arg line this build would pass, empty for none
+    default: ""
+  directory:
+    description: Application directory, . for the repository root
+    default: "."
+
+outputs:
+  released:
+    description: '"true" when the template''s images were released for this commit'
+    value: ${{ steps.release.outputs.released }}
+
+runs:
+  using: composite
+  steps:
+    - name: Release with the template's images
+      id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        IMAGE: ${{ inputs.image }}
+        SHA_TAG: ${{ inputs.sha-tag }}
+        LOCALES: ${{ inputs.locales }}
+        PHP_ARG: ${{ inputs.php-arg }}
+        DIRECTORY: ${{ inputs.directory }}
+      run: python3 "$GITHUB_ACTION_PATH/release.py" || echo "::warning::Could not check for the template's release; building."

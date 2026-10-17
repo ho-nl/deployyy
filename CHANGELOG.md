@@ -4,6 +4,19 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-17
+
+### Magento
+
+- **A project cloned from a template starts without building.** The first
+  commit of a clone holds the template commit's files and names it in a
+  `Deployyy-Template:` trailer. When the template's release of that commit was
+  built with the same locales and PHP (read from its provenance), the build
+  copies those images to the new commit and skips building: the shop can
+  install about a minute after the clone instead of after a ~12-minute build.
+  Any other commit, or any difference, builds as before. Needs a template
+  whose image package is public, and deployyy-operator #421.
+
 ## 2026-10-13
 
 ### Magento

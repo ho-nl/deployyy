@@ -13,14 +13,13 @@
 #         contents: read
 #         packages: write
 #         actions: read
-#         id-token: write
 #       with:
 #         vars: ${{ toJSON(vars) }}
 #       secrets:
 #         all: ${{ toJSON(secrets) }}
 #
 # Build input is a repository variable or secret like any other; it reaches
-# `next build` and, after the build, the running storefront. The one exception
+# `next build`. The running storefront reads Deployyy's store. The one exception
 # is GC_MAGENTO_ENDPOINT on a Deployyy project with a paired Magento backend:
 # the platform publishes each branch's backend in DEPLOYYY_GC_MAGENTO_ENDPOINTS,
 # and nextjs-build.yml builds the branch against it (see there).

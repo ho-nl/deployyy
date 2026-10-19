@@ -26,9 +26,8 @@ INPUTS = {
 # job's own token, and the one secret the hand-off travels in.
 NOT_THE_PROJECTS = {"github_token", "all"}
 
-# Names the runner itself depends on. They are still delivered (the platform
-# decides what an app may receive); they are only kept out of the job's own
-# environment, where they would break the steps after this one.
+# Names the runner itself depends on: kept out of the job's own environment,
+# where they would break the steps after this one. They stay in `build-env`.
 RUNNER_OWNED = re.compile(r"(PATH|HOME|(GITHUB|RUNNER|ACTIONS)_.*)", re.IGNORECASE)
 
 
@@ -97,7 +96,6 @@ for key in secrets:
     variables.pop(key, None)
 
 temp = os.environ.get("RUNNER_TEMP") or "/tmp"
-values_path = os.path.join(temp, "deployyy-values.json")
 env_path = os.path.join(temp, "deployyy-build-env")
 
 
@@ -105,9 +103,6 @@ def private(path):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     return os.fdopen(fd, "w")
 
-
-with private(values_path) as out:
-    json.dump({"variables": variables, "secrets": secrets}, out)
 
 merged = {**variables, **secrets}
 with private(env_path) as out:
@@ -135,7 +130,7 @@ if not os.environ.get("IN_SECRETS", "").strip():
         "::warning title=Update the caller workflow::The caller workflow passes secrets with "
         "`secrets: inherit` or by name. Pass `with: vars: ${{ toJSON(vars) }}` and "
         "`secrets: all: ${{ toJSON(secrets) }}` instead. Grant `permissions: contents: read, "
-        "packages: write, actions: read, id-token: write`, see README Step 3. Until then, a "
+        "packages: write, actions: read`, see README Step 3. Until then, a "
         "repository outside the ho-nl organization builds without its secrets."
     )
 
@@ -149,6 +144,5 @@ if exported:
 
 with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as out:
     print(f"build-env={env_path}", file=out)
-    print(f"values={values_path}", file=out)
 
 sys.exit(0)

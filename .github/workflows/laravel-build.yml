@@ -37,8 +37,8 @@
 #
 # A GitHub Environment named after the branch overrides the repository's
 # values. COMPOSER_AUTH, when the project has it, becomes auth.json; public
-# packages need none. After a successful build the set goes to Deployyy for
-# this branch's environment (deliver-values, OIDC, never fails the build).
+# packages need none. These values reach the build only; the running app reads
+# its variables from Deployyy's store.
 #
 # Permissions: the jobs declare none and take the caller's grants, as
 # magento2-build.yml explains, so a caller from before 2026-10-07 still builds
@@ -320,16 +320,6 @@ jobs:
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
           echo "Released $image:php-fpm-$SHA_TAG and $image:nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The same variables and secrets, for the running app: Deployyy writes
-      # them into this branch's environment. Never fails the build.
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.values.outputs.values }}
-          platform: laravel
-          several: ${{ steps.app.outputs.multi }}
-          root-directory: ${{ steps.app.outputs.directory }}
-
   # An application whose folder this push did not change: its new commit's
   # tags point at the release of the push before, which is the image a build
   # would make again (the folder is the whole build context). Only for a
@@ -345,23 +335,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ needs.environment.outputs.name }}
     steps:
-      - name: Fetch platform build actions
-        uses: actions/checkout@v4
-        with:
-          repository: ho-nl/deployyy
-          path: .platform-recipes
-          sparse-checkout: .github/actions
-
-      - name: Load variables and secrets
-        id: values
-        uses: ./.platform-recipes/.github/actions/project-values
-        with:
-          vars: ${{ inputs.vars }}
-          secrets: ${{ secrets.all }}
-          job-vars: ${{ toJSON(vars) }}
-          job-secrets: ${{ toJSON(secrets) }}
-          export: "false"
-
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -383,11 +356,3 @@ jobs:
             docker buildx imagetools create -t "$image:$new" "$image:$old"
           done
           echo "$DIRECTORY is unchanged since $FROM. Released $image with the $FROM release." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.values.outputs.values }}
-          platform: laravel
-          several: "true"
-          root-directory: ${{ matrix.app.directory }}

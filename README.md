@@ -63,7 +63,6 @@ jobs:
       contents: read
       packages: write
       actions: read
-      id-token: write
     with:
       vars: ${{ toJSON(vars) }}
     secrets:
@@ -86,7 +85,6 @@ jobs:
       contents: read
       packages: write
       actions: read
-      id-token: write
     with:
       vars: ${{ toJSON(vars) }}
     secrets:
@@ -102,9 +100,6 @@ What each part does:
 - `vars: ${{ toJSON(vars) }}` passes every variable.
 - `packages: write` pushes the images.
 - `actions: read` reads the GitHub Environment named after the branch.
-- `id-token: write` lets the build prove its repository and branch to
-  Deployyy. Variables and secrets then reach the running application without
-  a stored credential.
 
 The build jobs use only the permissions the caller grants. A missing
 permission produces a warning in the build log:
@@ -112,7 +107,6 @@ permission produces a warning in the build log:
 | Missing | Effect |
 |---|---|
 | `actions: read` | The branch's GitHub Environment is not used. |
-| `id-token: write` | Variables and secrets do not reach the environment. |
 
 A caller written before 2026-10-07 uses `secrets: inherit` or passes
 `COMPOSER_AUTH` by name, without `permissions`. Such a caller builds, with a
@@ -124,35 +118,28 @@ During the build:
 - Every value is an environment variable of the build steps.
 - Every value is in the BuildKit secret `build-env`. A repository
   `Dockerfile` reads it with `RUN --mount=type=secret,id=build-env`.
-- After a successful build, the same values go to the branch's environment
-  on Deployyy.
 
-If the branch has no environment, or the repository is not connected, the
-build logs a warning and passes. The environment keeps its previous values.
+These values reach the build only. The running application reads its
+variables from Deployyy: Environment variables in the console, or
+`deployyy env add`.
 
 Limits:
 
 - The build job runs in the branch's GitHub Environment. That Environment's
   protection rules, such as required reviewers, wait timers and branch rules,
   apply to the build.
-- GitHub never shows a secret value again. Values reach Deployyy only through
-  a build.
-- If a new preview environment is not ready when its first build finishes,
-  delivery retries for about two minutes. After that, the next build delivers
-  the values.
 - The calling job cannot run in a GitHub Environment. Its `toJSON(secrets)`
   holds only repository and organization secrets. Environment secrets come in
   through the build job, which needs `actions: read`.
 - Organization secrets and variables arrive only if the organization grants
   them to the repository.
 - GitHub runs some builds without secrets, such as a pull request from a fork
-  or a Dependabot push. Those builds deliver no secret values.
+  or a Dependabot push. Those builds get no secret values.
 - Names must be valid shell variable names: letters, digits and underscores,
   not starting with a digit. Other names are skipped with a warning.
 - GitHub stores secret names in upper case.
 - A name used for both a variable and a secret is treated as a secret.
-- Names starting with `DEPLOYYY_` are build settings. They do not reach the
-  running application.
+- Names starting with `DEPLOYYY_` are build settings.
 - Values from the project's services, such as database and cache settings,
   override yours.
 
@@ -439,7 +426,6 @@ jobs:
       contents: read
       packages: write
       actions: read
-      id-token: write
     with:
       vars: ${{ toJSON(vars) }}
     secrets:
@@ -544,7 +530,6 @@ jobs:
       contents: read
       packages: write
       actions: read
-      id-token: write
     with:
       vars: ${{ toJSON(vars) }}
     secrets:

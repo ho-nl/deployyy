@@ -23,9 +23,9 @@
 #   - every key becomes an environment variable of the remaining steps
 #     (`export`), and is written as the BuildKit secret file `build-env`
 #     (KEY='value' lines, shell-quoted) that a recipe — or a project's own
-#     Dockerfile — mounts with `--mount=type=secret,id=build-env`;
-#   - the same set is written for `deliver-values`, which hands it to Deployyy
-#     for the branch's environment after a successful build.
+#     Dockerfile — mounts with `--mount=type=secret,id=build-env`.
+#
+# The running app's variables come from Deployyy's own store, not from here.
 #
 # Names only are printed, never a value.
 
@@ -53,9 +53,6 @@ outputs:
   build-env:
     description: Path to the BuildKit secret file build-env, mode 600
     value: ${{ steps.values.outputs.build-env }}
-  values:
-    description: Path to the {variables, secrets} JSON file for deliver-values, mode 600
-    value: ${{ steps.values.outputs.values }}
 
 runs:
   using: composite

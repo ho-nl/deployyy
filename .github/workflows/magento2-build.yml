@@ -75,15 +75,11 @@
 # created). The Environment belongs to the caller's repository, so this works
 # for a caller in any organization. Its protection rules apply to the build.
 #
-# After a successful build the same set goes to Deployyy for this branch's
-# environment (deliver-values), authenticated with the job's Actions OIDC token
-# — no stored credential. The console lists their names only, and the
-# running app reads them with getenv(). Deployyy unreachable or not taking them
-# is a warning, never a failed build; the environment then keeps the values it
-# had. A redeploy or rollback without a build keeps the last delivered values.
+# These values reach the build only. The running shop reads its variables from
+# Deployyy's store (Environment variables in the console) with getenv().
 #
 # The caller grants what the jobs need (see README):
-#   permissions: { contents: read, packages: write, actions: read, id-token: write }
+#   permissions: { contents: read, packages: write, actions: read }
 # The jobs declare no permissions of their own and take the caller's: a job
 # asking for more than its caller grants never starts (startup_failure, no
 # log), while a missing grant at run time is a warning that names it. A caller
@@ -528,16 +524,6 @@ jobs:
           docker buildx imagetools create -t "$image:php-fpm-$SHA_TAG" "$PHP_REF"
           echo "Released $image:php-fpm-$SHA_TAG and $image:nginx-$SHA_TAG" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The same variables and secrets, for the running shop: Deployyy writes
-      # them into this branch's environment. Never fails the build.
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.values.outputs.values }}
-          platform: magento2
-          several: ${{ steps.app.outputs.multi }}
-          root-directory: ${{ steps.app.outputs.directory }}
-
   # An application whose folder this push did not change: its new commit's
   # tags point at the release of the push before, which is the image a build
   # would make again (the folder is the whole build context). Only for a
@@ -553,23 +539,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ needs.environment.outputs.name }}
     steps:
-      - name: Fetch platform build actions
-        uses: actions/checkout@v4
-        with:
-          repository: ho-nl/deployyy
-          path: .platform-recipes
-          sparse-checkout: .github/actions
-
-      - name: Load variables and secrets
-        id: values
-        uses: ./.platform-recipes/.github/actions/project-values
-        with:
-          vars: ${{ inputs.vars }}
-          secrets: ${{ secrets.all }}
-          job-vars: ${{ toJSON(vars) }}
-          job-secrets: ${{ toJSON(secrets) }}
-          export: "false"
-
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -591,11 +560,3 @@ jobs:
             docker buildx imagetools create -t "$image:$new" "$image:$old"
           done
           echo "$DIRECTORY is unchanged since $FROM. Released $image with the $FROM release." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.values.outputs.values }}
-          platform: magento2
-          several: "true"
-          root-directory: ${{ matrix.app.directory }}

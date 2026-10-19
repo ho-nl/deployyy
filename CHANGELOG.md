@@ -4,6 +4,17 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-19
+
+### Builds
+
+- **A build no longer sends GitHub values to the environment.** The
+  `deliver-values` step is gone from the Magento, Next.js and Laravel build
+  workflows. A project's running variables come from Deployyy's store
+  (Environment variables in the console, `deployyy env add`); GitHub variables
+  and secrets reach the build only. Callers need no `id-token: write` and need
+  no change.
+
 ## 2026-10-17
 
 ### Magento

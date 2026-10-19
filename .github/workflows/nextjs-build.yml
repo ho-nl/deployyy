@@ -47,9 +47,8 @@
 #
 # This works for a caller in any organization (`secrets: inherit` does not, and
 # from ho-nl it still does). A GitHub Environment named after the branch
-# overrides the repository's values. After a successful build the set goes to
-# Deployyy for this branch's environment (deliver-values, OIDC, never fails
-# the build), where the running server reads it from process.env.
+# overrides the repository's values. These values reach the build only; the
+# running server reads its variables from Deployyy's store via process.env.
 #
 # Permissions: the jobs declare none and take the caller's grants, as
 # magento2-build.yml explains, so a caller from before 2026-10-07 still builds
@@ -402,16 +401,6 @@ jobs:
           docker buildx imagetools create -t "$image:$TAG" "$RUNTIME"
           echo "Released $image:$TAG and $image:$TAG-cache-seed" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The same variables and secrets, for the running server: Deployyy
-      # writes them into this branch's environment. Never fails the build.
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.env.outputs.values }}
-          platform: ${{ inputs.platform }}
-          several: ${{ steps.app.outputs.multi }}
-          root-directory: ${{ steps.app.outputs.directory }}
-
   # An application whose folder this push did not change: its new commit's
   # tags point at the release of the push before, which is the image a build
   # would make again (the folder is the whole build context). Only for a
@@ -427,23 +416,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ needs.environment.outputs.name }}
     steps:
-      - name: Fetch platform build actions
-        uses: actions/checkout@v4
-        with:
-          repository: ho-nl/deployyy
-          path: .platform-recipes
-          sparse-checkout: .github/actions
-
-      - name: Load variables and secrets
-        id: values
-        uses: ./.platform-recipes/.github/actions/project-values
-        with:
-          vars: ${{ inputs.vars }}
-          secrets: ${{ secrets.all }}
-          job-vars: ${{ toJSON(vars) }}
-          job-secrets: ${{ toJSON(secrets) }}
-          export: "false"
-
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -465,11 +437,3 @@ jobs:
             docker buildx imagetools create -t "$image:$new" "$image:$old"
           done
           echo "$DIRECTORY is unchanged since $FROM. Released $image with the $FROM release." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Deliver variables and secrets to the environment
-        uses: ./.platform-recipes/.github/actions/deliver-values
-        with:
-          values: ${{ steps.values.outputs.values }}
-          platform: ${{ inputs.platform }}
-          several: "true"
-          root-directory: ${{ matrix.app.directory }}

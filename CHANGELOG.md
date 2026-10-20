@@ -4,6 +4,25 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-20
+
+### Builds
+
+- **Composer credentials are a build secret, not a file in the image's
+  layers.** The Magento, Mage-OS and Laravel recipes mount `COMPOSER_AUTH` as
+  the BuildKit secret `composer-auth` on their `composer install` steps. The
+  credentials are in no layer and no build cache, and a changed token no longer
+  invalidates the `composer install` cache: it reruns only when
+  `composer.json`, `composer.lock` or `patches/` change. The build workflows
+  write `auth.json` outside the build context. A repository's own Dockerfile
+  that copies `auth.json` still gets the file, with a warning to mount
+  `composer-auth` instead (`RUN --mount=type=secret,id=composer-auth,required=false,mode=0444`).
+  Hosted builds need deployyy-operator with the `composer-auth` secret.
+- **Laravel: private git dependencies of npm.** The asset step exports the
+  `GIT_CONFIG_*` variables of the build env, so a hosted build's GitHub token
+  reaches git dependencies in `package.json`. Other variables stay out of
+  that step.
+
 ## 2026-10-19
 
 ### Builds

@@ -14,9 +14,9 @@
 # Attestations: every image carries an SBOM (SPDX, BuildKit's syft scanner)
 # and SLSA provenance (mode=max) as OCI attestation manifests next to the
 # image. `docker buildx imagetools inspect <ref> --format '{{json .SBOM}}'`
-# and `'{{json .Provenance}}'` read them back. Build secrets (auth.json is
-# deleted in the recipe; the Next.js build env is a BuildKit secret) are
-# never in the provenance: BuildKit records build-args, not secret values.
+# and `'{{json .Provenance}}'` read them back. Build secrets (composer's
+# credentials and the build env are BuildKit secrets) are never in the
+# provenance: BuildKit records build-args, not secret values.
 #
 # Scan policy (trivy, vulnerabilities in OS packages and language deps):
 #   - FAIL on a CRITICAL vulnerability that has a fixed version — ONLY when

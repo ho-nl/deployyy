@@ -21,7 +21,7 @@
 #   - The APPLICATION DIRECTORY comes from the repository Actions variable
 #     DEPLOYYY_ROOT_DIR (set by the deployyy operator from the project's root
 #     directory), e.g. `src`. composer.json, the Dockerfile, .platform/,
-#     deployyy.json, auth.json and patches/ are read there, and it is the
+#     deployyy.json and patches/ are read there, and it is the
 #     docker build context. Unset: the repository root.
 #   - Images push to ghcr.io/<caller repo> as php-fpm-<sha7> + nginx-<sha7>
 #     — the exact commit-keyed tags the operator verifies before deploying.
@@ -65,8 +65,9 @@
 # merged in too.) project-values masks every secret, drops github_token, and
 # makes every key an environment variable of the build steps and the BuildKit
 # secret `build-env`. COMPOSER_AUTH (the content of auth.json; legacy name
-# MAGENTO_AUTH_JSON) simply arrives as one of the keys and becomes auth.json;
-# none is needed for public packages (Mage-OS).
+# MAGENTO_AUTH_JSON) simply arrives as one of the keys and becomes the BuildKit
+# secret `composer-auth`, which the recipe mounts on its composer step; none
+# is needed for public packages (Mage-OS).
 #
 # Per environment: when the repository has a GitHub Environment named after the
 # branch (`main`, `staging`, ...), the build job runs in it, so its variables
@@ -401,13 +402,16 @@ jobs:
           print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 
-      - name: Write auth.json
+      - name: Write composer credentials
         # COMPOSER_AUTH (or the legacy MAGENTO_AUTH_JSON) is one of the
         # project's secrets, exported by project-values like every other key.
+        # It becomes the BuildKit secret composer-auth, outside the build
+        # context: in no layer, and not part of any cache key.
         working-directory: ${{ steps.root.outputs.dir }}
         run: |
-          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > auth.json
-          elif [ -n "${MAGENTO_AUTH_JSON:-}" ]; then printf '%s' "$MAGENTO_AUTH_JSON" > auth.json
+          umask 077
+          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > "$RUNNER_TEMP/composer-auth.json"
+          elif [ -n "${MAGENTO_AUTH_JSON:-}" ]; then printf '%s' "$MAGENTO_AUTH_JSON" > "$RUNNER_TEMP/composer-auth.json"
           else
             # No credentials configured. That is a VALID state, not a fatal one:
             # a Mage-OS project resolves everything from public repositories
@@ -418,7 +422,14 @@ jobs:
             # refusing to try. An empty auth.json keeps composer's auth
             # plumbing happy without granting anything.
             echo "No COMPOSER_AUTH secret. Composer installs public packages only. Add COMPOSER_AUTH for Marketplace or private packages."
-            echo '{}' > auth.json
+            echo '{}' > "$RUNNER_TEMP/composer-auth.json"
+          fi
+          # A Dockerfile that does not mount the composer-auth secret (a
+          # repository's own, written for `COPY auth.json`) also gets the
+          # file in the build context. Its credentials then reach a layer.
+          if ! grep -qE -- '--mount=[^[:space:]]*id=composer-auth([^[:alnum:]_-]|$)' Dockerfile 2>/dev/null; then
+            echo "::warning::The Dockerfile does not mount the BuildKit secret composer-auth, so auth.json is written to the build context. Use RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 on the composer step instead."
+            cp "$RUNNER_TEMP/composer-auth.json" auth.json
           fi
 
       - uses: docker/setup-buildx-action@v3
@@ -454,7 +465,9 @@ jobs:
           target: php-fpm
           label: php-fpm
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
-          secret-files: build-env=${{ steps.values.outputs.build-env }}
+          secret-files: |
+            build-env=${{ steps.values.outputs.build-env }}
+            composer-auth=${{ runner.temp }}/composer-auth.json
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}
@@ -498,7 +511,9 @@ jobs:
           target: nginx
           label: nginx
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
-          secret-files: build-env=${{ steps.values.outputs.build-env }}
+          secret-files: |
+            build-env=${{ steps.values.outputs.build-env }}
+            composer-auth=${{ runner.temp }}/composer-auth.json
           build-args: |
             ${{ steps.resolve.outputs.php_arg }}
             PLATFORM_LOCALES=${{ steps.resolve.outputs.locales }}

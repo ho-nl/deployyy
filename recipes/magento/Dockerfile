@@ -36,7 +36,6 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_INI_MEMORY_LIMIT=4G
 
 USER docker
-COPY --chown=docker:docker auth.json /home/docker/.composer/auth.json
 COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 # The project's own patches (vaimo/composer-patches, `extra.patches-search: patches` or
 # `extra.patches` sources under ./patches/) MUST be in the context BEFORE `composer install`
@@ -47,12 +46,14 @@ COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 COPY --chown=docker:docker composer.json patche[s] /tmp/magento/patches/
 RUN rm -f /tmp/magento/patches/composer.json
 WORKDIR /tmp/magento
-RUN composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader \
-    && rm -f /home/docker/.composer/auth.json
+# composer's credentials (auth.json content) arrive as the BuildKit secret composer-auth,
+# exported as COMPOSER_AUTH for this step only: they are in no layer and no build cache,
+# and a changed token (a hosted build gets a new GitHub token per build) does not change
+# this step's cache key.
+RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
+    composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 COPY --chown=docker:docker . /tmp/magento/
-# NEVER let Marketplace credentials reach the published image: `COPY .` above pulls in
-# the workflow-written auth.json, and the php-fpm stage ships this whole directory.
-RUN rm -f /tmp/magento/auth.json
 # (not in mageos-3) The workflow's checkout of this repo sits in the build context; it is
 # not part of the application.
 RUN rm -rf /tmp/magento/.platform-recipes

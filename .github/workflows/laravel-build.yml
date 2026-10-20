@@ -36,8 +36,8 @@
 #     all: ${{ toJSON(secrets) }}
 #
 # A GitHub Environment named after the branch overrides the repository's
-# values. COMPOSER_AUTH, when the project has it, becomes auth.json; public
-# packages need none. These values reach the build only; the running app reads
+# values. COMPOSER_AUTH, when the project has it, becomes the BuildKit secret
+# composer-auth; public packages need none. These values reach the build only; the running app reads
 # its variables from Deployyy's store.
 #
 # Permissions: the jobs declare none and take the caller's grants, as
@@ -260,13 +260,23 @@ jobs:
           print(f"os_updates_day={datetime.date.today().isoformat()}", file=out)
           EOF
 
-      - name: Write auth.json
+      - name: Write composer credentials
         # COMPOSER_AUTH is one of the project's secrets, exported by
-        # project-values like every other key.
+        # project-values like every other key. It becomes the BuildKit secret
+        # composer-auth, outside the build context: in no layer, and not part
+        # of any cache key.
         working-directory: ${{ steps.root.outputs.dir }}
         run: |
-          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > auth.json
-          else echo '{}' > auth.json; fi
+          umask 077
+          if [ -n "${COMPOSER_AUTH:-}" ]; then printf '%s' "$COMPOSER_AUTH" > "$RUNNER_TEMP/composer-auth.json"
+          else echo '{}' > "$RUNNER_TEMP/composer-auth.json"; fi
+          # A Dockerfile that does not mount the composer-auth secret (a
+          # repository's own, written for `COPY auth.json`) also gets the
+          # file in the build context. Its credentials then reach a layer.
+          if ! grep -qE -- '--mount=[^[:space:]]*id=composer-auth([^[:alnum:]_-]|$)' Dockerfile 2>/dev/null; then
+            echo "::warning::The Dockerfile does not mount the BuildKit secret composer-auth, so auth.json is written to the build context. Use RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 on the composer step instead."
+            cp "$RUNNER_TEMP/composer-auth.json" auth.json
+          fi
 
       - uses: docker/setup-buildx-action@v3
 
@@ -286,7 +296,9 @@ jobs:
           label: php-fpm
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
           build-args: PHP_VERSION=${{ steps.resolve.outputs.php }}
-          secret-files: build-env=${{ steps.values.outputs.build-env }}
+          secret-files: |
+            build-env=${{ steps.values.outputs.build-env }}
+            composer-auth=${{ runner.temp }}/composer-auth.json
           cache-from: type=gha,scope=php-fpm${{ steps.app.outputs.scope }}
           cache-to: type=gha,scope=php-fpm${{ steps.app.outputs.scope }},mode=max,ignore-error=true
 
@@ -299,7 +311,9 @@ jobs:
           target: nginx
           label: nginx
           enforce: ${{ env.DEPLOYYY_SCAN_ENFORCE == '1' }}
-          secret-files: build-env=${{ steps.values.outputs.build-env }}
+          secret-files: |
+            build-env=${{ steps.values.outputs.build-env }}
+            composer-auth=${{ runner.temp }}/composer-auth.json
           build-args: |
             PHP_VERSION=${{ steps.resolve.outputs.php }}
             PLATFORM_OS_UPDATES_DAY=${{ steps.resolve.outputs.os_updates_day }}

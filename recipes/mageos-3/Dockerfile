@@ -24,7 +24,6 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_INI_MEMORY_LIMIT=4G
 
 USER docker
-COPY --chown=docker:docker auth.json /home/docker/.composer/auth.json
 COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 # The project's own patches (vaimo/composer-patches, `extra.patches-search: patches` or
 # `extra.patches` sources under ./patches/) MUST be in the context BEFORE `composer install`
@@ -38,15 +37,14 @@ COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 COPY --chown=docker:docker composer.json patche[s] /tmp/magento/patches/
 RUN rm -f /tmp/magento/patches/composer.json
 WORKDIR /tmp/magento
-RUN composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader \
-    && rm -f /home/docker/.composer/auth.json
+# composer's credentials (auth.json content) arrive as the BuildKit secret composer-auth,
+# exported as COMPOSER_AUTH for this step only: they are in no layer and no build cache,
+# and a changed token (a hosted build gets a new GitHub token per build) does not change
+# this step's cache key.
+RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
+    composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 COPY --chown=docker:docker . /tmp/magento/
-# NEVER let Magento marketplace credentials survive into the published image.
-# `COPY . /tmp/magento/` above pulls in the workflow-generated auth.json, and the
-# php-fpm stage ships this whole directory — so without this the image published to
-# GHCR would contain the credentials. It CANNOT simply be .dockerignore'd: the
-# builder needs it for its own COPY (composer install), so it is deleted here instead.
-RUN rm -f /tmp/magento/auth.json
 # Fail the build for a patch that never reached the code. vaimo/composer-patches can skip
 # a patch WITHOUT failing — a header naming no installed package, or the folder scan's
 # implicit `@version >=0.0.0` against a branch install (dev-main) — and the build then

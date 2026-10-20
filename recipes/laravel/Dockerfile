@@ -21,19 +21,30 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_EXTENSION_EXIF=1 \
     PHP_INI_MEMORY_LIMIT=2G
 USER docker
-COPY --chown=docker:docker auth.json /home/docker/.composer/auth.json
 COPY --chown=docker:docker composer.json composer.lock* /tmp/app/
 WORKDIR /tmp/app
 # Dependencies first, without the project's scripts (they need the code):
-# only composer.json/lock invalidate this layer.
-RUN composer install --no-interaction --no-dev --prefer-dist --no-scripts --no-autoloader
+# only composer.json/lock invalidate this layer. composer's credentials
+# (auth.json content) arrive as the BuildKit secret composer-auth, exported as
+# COMPOSER_AUTH for the step only: in no layer and no build cache, and a
+# changed token does not change the cache key.
+RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
+    composer install --no-interaction --no-dev --prefer-dist --no-scripts --no-autoloader
 COPY --chown=docker:docker . /tmp/app/
-# The workflow-written credentials must never reach the published image.
-RUN rm -f /tmp/app/auth.json /home/docker/.composer/auth.json \
-    && composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
+RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
+    composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 # Front-end assets (Vite/Mix) when the project has any; node_modules stays
-# behind in this stage.
-RUN if [ -f package.json ]; then \
+# behind in this stage. git's configuration from the BuildKit secret build-env
+# (GIT_CONFIG_*: on a hosted build, a GitHub token for private git
+# dependencies) is exported for this step only. Only those single-line
+# assignments are evaluated: the other variables (NODE_ENV) would change what
+# npm installs.
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    if [ -f package.json ]; then \
+      if [ -f /run/secrets/build-env ]; then set -a; \
+        eval "$(sed -nE "\#^GIT_CONFIG_[A-Z0-9_]*=('[^']*'|[A-Za-z0-9_@%+=:,./-]*)\$#p" /run/secrets/build-env)"; set +a; fi; \
       if [ -f package-lock.json ]; then npm ci; else npm install; fi \
       && npm run build --if-present \
       && rm -rf node_modules; \

@@ -376,6 +376,31 @@ cookie domain and the static and media base URLs. A store or website code with
 a capital letter or `__` cannot be named by a variable; its base URLs stay in
 `env.php`'s `system` section.
 
+**Configuration check.** The recipes disable a Magento safety check: the
+plugin `configHash` (`Magento\Deploy\Model\Plugin\ConfigChangeDetector`, on
+`Magento\Framework\App\FrontControllerInterface` in `Magento_Deploy`'s
+`etc/di.xml`). With it, every page, GraphQL and REST request answers 500 "The
+configuration file has changed" while the configuration in `app/etc` differs
+from the last `app:config:import`. The build adds the module
+`Deployyy_ConfigCheckOff` (`.platform/config-check-off.php`), fails when the
+plugin still runs in a compiled area, and labels the image
+`app.deployyy.config-check=off`. On that label the platform imports a
+release that changes only configuration while the previous release keeps
+serving, with no maintenance page. This is safe on the platform because:
+
+- each process reads its own `config.php` and `env.php` `system` values and
+  its `CONFIG__` variables, which override the database at runtime;
+- the cache key prefix is a digest of that configuration, so two releases
+  never share cached configuration;
+- the platform runs `app:config:import` for every release that changes the
+  configuration, while the previous release serves, and reports a failed
+  import on the deployment.
+
+The remaining gap: a store, website or theme that is new in `config.php` is
+missing from the database until the import has run, and one removed from
+`config.php` is gone from the database for the previous release from then on. Cron, consumers and `bin/magento` commands never ran this
+check. `app:config:status` and `config:set` still compare the hashes.
+
 A release line without a recipe fails the build, with the list of supported
 lines. Adobe Commerce has no recipe. For Adobe Commerce, add your own `Dockerfile`.
 

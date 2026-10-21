@@ -307,11 +307,25 @@ LABEL app.deployyy.pod-security="restricted"
 # config (DeploymentConfig\Writer), which drops env.php's $_ENV assignments of the
 # CONFIG__ values. A read-only copy runs before every PHP script, in its own scope, so
 # every request and command gets them.
-COPY --chmod=0444 .platform/env.php /usr/local/lib/deployyy/env.php
+# Plain COPY and chmod in a RUN: COPY --chmod also sets the mode of the directory it
+# creates, and a directory without x stops every PHP process (exit 255).
+COPY .platform/env.php /usr/local/lib/deployyy/env.php
 RUN printf '%s\n' '<?php' '(static function (): void { require __DIR__ . "/env.php"; })();' \
-      > /usr/local/lib/deployyy/prepend.php && chmod 0444 /usr/local/lib/deployyy/prepend.php
+      > /usr/local/lib/deployyy/prepend.php \
+    && chown -R root:root /usr/local/lib/deployyy \
+    && chmod 0755 /usr/local/lib/deployyy \
+    && chmod 0644 /usr/local/lib/deployyy/env.php /usr/local/lib/deployyy/prepend.php
 ENV PHP_INI_AUTO_PREPEND_FILE=/usr/local/lib/deployyy/prepend.php
 USER 1000:1000
+# A script as the runtime user (docker, uid 1000) must run the prepend file, or the
+# build fails. `php -r` skips auto_prepend_file, so the check is a script.
+RUN printf '%s\n' '<?php' \
+      'if (!isset($_ENV["CONFIG__DEFAULT__CATALOG__SEARCH__OPENSEARCH_SERVER_HOSTNAME"])) {' \
+      '    fwrite(STDERR, "auto_prepend_file did not run as " . get_current_user() . "\n");' \
+      '    exit(1);' \
+      '}' \
+      'echo "auto_prepend_file ran\n";' > /tmp/prepend-check.php \
+    && php /tmp/prepend-check.php && rm /tmp/prepend-check.php
 ENTRYPOINT ["/usr/local/bin/deployyy-php-entrypoint.sh"]
 CMD ["php-fpm"]
 

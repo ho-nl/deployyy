@@ -83,6 +83,10 @@ $config = [
         ],
     ],
     'cache' => [
+        // Magento writes a missing GraphQL cache id salt into env.php on the first
+        // GraphQL request (GraphQlCache CacheIdCalculator::getSalt), which rewrites
+        // this file as static values. One salt per environment, from its crypt key.
+        'graphql' => ['id_salt' => substr(hash('sha256', 'graphql-id-salt:' . $e('MAGENTO_CRYPT_KEY', '')), 0, 32)],
         'frontend' => [
             'default' => [
                 'backend' => $cacheBackend,
@@ -106,14 +110,24 @@ $config = [
         'default' => [
             'catalog' => ['search' => [
                 'engine' => 'opensearch',
-                'opensearch_server_hostname' => $e('SEARCH_HOST', 'opensearch'),
-                'opensearch_server_port' => $e('SEARCH_PORT', '9200'),
                 'opensearch_index_prefix' => 'magento2',
                 'opensearch_enable_auth' => '0',
             ]],
         ],
     ],
     'directories' => ['document_root_is_pub' => true],
+];
+
+// Values that differ per environment (hosts, the search service, the page cache) are
+// pinned as CONFIG__<SCOPE>__<PATH> variables, config path => value here, never in the
+// `system` section. Magento hashes `system` for app:config:import and answers 500 ("The
+// configuration file has changed") from a change until the import runs. A CONFIG__
+// variable is applied on every configuration read (Magento\Config\Model\Config\Processor\
+// EnvironmentPlaceholder) and is outside that hash. Like `system`, a pin outranks
+// core_config_data at its own scope.
+$pins = [
+    'default/catalog/search/opensearch_server_hostname' => $e('SEARCH_HOST', 'opensearch'),
+    'default/catalog/search/opensearch_server_port' => $e('SEARCH_PORT', '9200'),
 ];
 
 // The queue is optional (docs/SERVICES.md §5): a project without a queue service
@@ -140,9 +154,9 @@ if (($e('QUEUE_HOST') ?? '') !== '') {
 $varnishHost = $e('VARNISH_HOST', 'varnish-service');
 if ($varnishHost !== '') {
     $config['http_cache_hosts'] = [['host' => $varnishHost, 'port' => 80]];
-    $config['system']['default']['system']['full_page_cache']['caching_application'] = '2';
+    $pins['default/system/full_page_cache/caching_application'] = '2';
 } else {
-    $config['system']['default']['system']['full_page_cache']['caching_application'] = '1';
+    $pins['default/system/full_page_cache/caching_application'] = '1';
 }
 
 // Queue consumers (deployyy-operator docs/MAGENTO-PROCESSES.md): the consumer
@@ -152,27 +166,19 @@ if ($varnishHost !== '') {
 $config['cron_consumers_runner'] = ['cron_run' => false, 'max_messages' => 1000, 'consumers' => []];
 $config['queue']['consumers_wait_for_messages'] = 0;
 
-// Pin the base URL from the environment rather than trusting core_config_data.
-//
-// env.php's `system` section is the HIGHEST-precedence config source
-// (systemConfigInitialDataProvider, sortOrder 1000 — above the DB's 100), so this
-// cleanly overrides core_config_data at default scope. A database imported from another
-// environment carries THAT environment's base_url, which would redirect this env away
-// from itself. Changing MAGENTO_BASE_URL in the magento-env ConfigMap is what moves the
-// env to a new hostname (e.g. at cutover).
+// Pin the base URL from the environment rather than trusting core_config_data. A
+// database imported from another environment carries THAT environment's base_url, which
+// would redirect this environment away from itself. Changing MAGENTO_BASE_URL in the
+// magento-env ConfigMap moves the environment to a new host.
 //
 // Guarded: an unset var must not write a null base_url, which breaks Magento.
 // This is the default scope; the store and website scopes follow below.
 if ($e('MAGENTO_BASE_URL')) {
-    $config['system']['default']['web'] = [
-        'unsecure' => ['base_url' => $e('MAGENTO_BASE_URL')],
-        'secure' => ['base_url' => $e('MAGENTO_BASE_URL')],
-        // redirect_to_base=0 so the env still SERVES on its other hosts (the
-        // automatic deployyy.app host always routes) instead of 301-ing them to
-        // the canonical one. The operator decides the canonical host; this just
-        // stops Magento fighting it.
-        'url' => ['redirect_to_base' => '0'],
-    ];
+    $pins['default/web/unsecure/base_url'] = $e('MAGENTO_BASE_URL');
+    $pins['default/web/secure/base_url'] = $e('MAGENTO_BASE_URL');
+    // redirect_to_base=0 so the env still SERVES on its other hosts (the automatic
+    // deployyy.app host always routes) instead of 301-ing them to the canonical one.
+    $pins['default/web/url/redirect_to_base'] = '0';
 }
 
 // Per-scope base URLs. A store-scope or website-scope `web/*/base_url` row in
@@ -181,15 +187,15 @@ if ($e('MAGENTO_BASE_URL')) {
 // operator reads every store view and website from the database and emits a JSON
 // object per scope, {code: base_url}: MAGENTO_STORE_BASE_URLS (a store view's own host,
 // a store host on a non-production environment, else the canonical base URL) and
-// MAGENTO_WEBSITE_BASE_URLS (the website's default store view's). env.php's `system`
-// section outranks core_config_data at every scope; a code the database does not hold
-// is ignored. The paired nginx Host->MAGE_RUN_CODE map makes a Luma frontend resolve a
-// store view with its own host natively; a headless GraphCommerce frontend ignores the
-// run code but still needs these for correct absolute URLs.
+// MAGENTO_WEBSITE_BASE_URLS (the website's default store view's). A code the database
+// does not hold is ignored. The paired nginx Host->MAGE_RUN_CODE map makes a Luma
+// frontend resolve a store view with its own host natively; a headless GraphCommerce
+// frontend ignores the run code but still needs these for correct absolute URLs.
 //
 // base_link_url is left to the database: a headless shop points it at its storefront
 // (customer e-mails, password reset links and the sitemap link to the frontend, not
 // to this backend).
+$scopes = ['default'];
 foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_BASE_URLS'] as $scope => $var) {
     $baseUrls = json_decode((string) $e($var, ''), true);
     if (!is_array($baseUrls)) {
@@ -199,8 +205,9 @@ foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_
         if (!is_string($code) || !is_string($baseUrl) || $baseUrl === '') {
             continue;
         }
-        $config['system'][$scope][$code]['web']['unsecure']['base_url'] = $baseUrl;
-        $config['system'][$scope][$code]['web']['secure']['base_url'] = $baseUrl;
+        $scopes[] = "$scope/$code";
+        $pins["$scope/$code/web/unsecure/base_url"] = $baseUrl;
+        $pins["$scope/$code/web/secure/base_url"] = $baseUrl;
     }
 }
 
@@ -216,15 +223,11 @@ foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_
 // across its own subdomains or serve media from a host of its own.
 $cookieDomain = getenv('MAGENTO_COOKIE_DOMAIN');
 if ($cookieDomain !== false) {
-    $hostOnly = [
-        'cookie' => ['cookie_domain' => $cookieDomain],
-        'unsecure' => ['base_static_url' => '', 'base_media_url' => ''],
-        'secure' => ['base_static_url' => '', 'base_media_url' => ''],
-    ];
-    $config['system']['default']['web'] = array_replace_recursive($config['system']['default']['web'] ?? [], $hostOnly);
-    foreach (['websites', 'stores'] as $scope) {
-        foreach (array_keys($config['system'][$scope] ?? []) as $code) {
-            $config['system'][$scope][$code]['web'] = array_replace_recursive($config['system'][$scope][$code]['web'] ?? [], $hostOnly);
+    foreach ($scopes as $scope) {
+        $pins["$scope/web/cookie/cookie_domain"] = $cookieDomain;
+        foreach (['unsecure', 'secure'] as $secure) {
+            $pins["$scope/web/$secure/base_static_url"] = '';
+            $pins["$scope/web/$secure/base_media_url"] = '';
         }
     }
 }
@@ -232,13 +235,10 @@ if ($cookieDomain !== false) {
 // Dedicated admin hostname — Magento's custom admin URL. When the operator sets
 // MAGENTO_ADMIN_BASE_URL (from the Environment's adminDomain) the admin is
 // served on its own host instead of the storefront's. Empty = admin stays on
-// the default host + the admin frontName (the common case), so this block is
-// inert unless a dedicated admin domain is declared.
+// the default host + the admin frontName (the common case).
 if ($e('MAGENTO_ADMIN_BASE_URL')) {
-    $config['system']['default']['admin']['url'] = [
-        'use_custom' => '1',
-        'custom' => $e('MAGENTO_ADMIN_BASE_URL'),
-    ];
+    $pins['default/admin/url/use_custom'] = '1';
+    $pins['default/admin/url/custom'] = $e('MAGENTO_ADMIN_BASE_URL');
 }
 
 // Pin minification to the BUILD-TIME REALITY.
@@ -294,5 +294,41 @@ if ($e('MEDIA_BUCKET')) {
         ],
     ];
 }
+
+// Magento reads CONFIG__ variables from $_ENV only, and php.ini-production's
+// variables_order (GPCS) leaves $_ENV empty: copy them from the process environment.
+// A pin replaces a project variable of the same path: the platform decides the hosts.
+// Magento's DeploymentConfig\Writer rewrites this file as static values when it saves
+// deployment config, which drops these assignments: the recipe image also runs a copy
+// of this file before every PHP script (auto_prepend_file, Dockerfile).
+foreach (getenv() as $name => $value) {
+    if (str_starts_with($name, 'CONFIG__')) {
+        $_ENV[$name] = $value;
+    }
+}
+foreach ($pins as $path => $value) {
+    // Magento\Config\Model\Placeholder\Environment lowercases a variable's path and splits
+    // it on `__`: a store or website code with a capital or `__` stays in `system`.
+    if ($path !== strtolower($path) || str_contains($path, '__')) {
+        $node = &$config['system'];
+        foreach (explode('/', $path) as $key) {
+            $node = &$node[$key];
+        }
+        $node = $value;
+        unset($node);
+        continue;
+    }
+    $_ENV['CONFIG__' . strtoupper(str_replace('/', '__', $path))] = $value;
+}
+
+// Magento caches the merged configuration in Redis, shared by every pod. During a
+// rollout, pods of the earlier configuration serve beside the new ones and would write
+// their values back after the release's cache:flush. The cache key prefix is a digest of
+// the configuration this file supplies, so each configuration has its own cache.
+$configVars = array_filter($_ENV, static fn($name) => str_starts_with((string) $name, 'CONFIG__'), ARRAY_FILTER_USE_KEY);
+ksort($configVars);
+$cachePrefix = substr(hash('sha256', serialize([$configVars, $config['system']])), 0, 8) . '_';
+$config['cache']['frontend']['default']['id_prefix'] = $cachePrefix;
+$config['cache']['frontend']['page_cache']['id_prefix'] = $cachePrefix;
 
 return $config;

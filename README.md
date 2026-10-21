@@ -363,10 +363,18 @@ one with a warning to delete it. A repository with its own `Dockerfile` must cop
 `.platform/env.php` to `/var/www/html/app/etc/env.php`; the build fails when the
 image's `env.php` differs. Set shop configuration
 that differs per environment as a `CONFIG__…` variable instead, for example
-`CONFIG__DEFAULT__SMTP__CONFIGURATION_OPTION__HOST` or
-`CONFIG__WEBSITES__<code>__WEB__SECURE__BASE_URL`: Magento reads these like an
-`env.php` setting and locks the field in the admin. Configuration that is the
-same everywhere belongs in `app/etc/config.php`.
+`CONFIG__DEFAULT__SMTP__CONFIGURATION_OPTION__HOST`: Magento reads these like an
+`env.php` setting and locks the field in the admin. A changed variable needs no
+`app:config:import`. Configuration that is the same everywhere belongs in
+`app/etc/config.php`.
+
+The platform sets these paths as `CONFIG__…` variables, and its value replaces
+a project variable of the same path: the base URLs of every scope,
+`web/url/redirect_to_base`, the admin URL, the search host and port, the page
+cache (`system/full_page_cache/caching_application`) and, below production, the
+cookie domain and the static and media base URLs. A store or website code with
+a capital letter or `__` cannot be named by a variable; its base URLs stay in
+`env.php`'s `system` section.
 
 A release line without a recipe fails the build, with the list of supported
 lines. Adobe Commerce has no recipe. For Adobe Commerce, add your own `Dockerfile`.

@@ -6,6 +6,15 @@ are noted per entry.
 
 ## 2026-10-21
 
+### Builds
+
+- **A Magento build can take the recipes from another commit.**
+  `magento2-build.yml` checks out this repository at the input `recipes-ref`,
+  else the Actions variable `DEPLOYYY_RECIPES_REF`, else `main`. The deployyy
+  operator sets the variable while a platform admin pins a recipes commit on
+  the project's repository, so one project builds from a recipe change before
+  it merges. Callers need no change.
+
 ### Magento
 
 - **A new host no longer answers 500 until the configuration import.** The

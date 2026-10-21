@@ -4,6 +4,17 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-21
+
+### Builds
+
+- **A Magento build can take the recipes from another commit.**
+  `magento2-build.yml` checks out this repository at the input `recipes-ref`,
+  else the Actions variable `DEPLOYYY_RECIPES_REF`, else `main`. The deployyy
+  operator sets the variable while a platform admin pins a recipes commit on
+  the project's repository, so one project builds from a recipe change before
+  it merges. Callers need no change.
+
 ## 2026-10-20
 
 ### Builds

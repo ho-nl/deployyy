@@ -14,6 +14,10 @@
 #     one file keeps the platform versions of the others).
 #     Recipes live in THIS public repo (recipes/<line>/): no token, no
 #     workflow-access setting — callable from any org, third-party ready.
+#     They are checked out at the input recipes-ref, else the repository
+#     Actions variable DEPLOYYY_RECIPES_REF (set by the deployyy operator from
+#     a platform admin's pin), else main. The workflow file itself runs at
+#     the caller's `@ref`.
 #   - LOCALES for the DB-less static-content:deploy come from the repository
 #     Actions variable DEPLOYYY_MAGENTO_LOCALES (set by the deployyy operator
 #     from the app configuration). Default en_US. A deployyy.json
@@ -100,6 +104,10 @@ on:
         type: string
         default: "{}"
         description: "All caller variables, as toJSON(vars)"
+      recipes-ref:
+        type: string
+        default: ""
+        description: "Commit or branch of ho-nl/deployyy to take the recipes from. Empty: the Actions variable DEPLOYYY_RECIPES_REF (set by the deployyy operator), else main"
     secrets:
       all:
         required: false
@@ -156,6 +164,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ho-nl/deployyy
+          ref: ${{ inputs.recipes-ref || fromJSON(inputs.vars).DEPLOYYY_RECIPES_REF || 'main' }}
           path: .platform-recipes
           sparse-checkout: .github/actions
 
@@ -189,6 +198,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ho-nl/deployyy
+          ref: ${{ inputs.recipes-ref || fromJSON(inputs.vars).DEPLOYYY_RECIPES_REF || 'main' }}
           path: .platform-recipes
           sparse-checkout: |
             recipes

@@ -297,6 +297,10 @@ RUN set -eux; \
 COPY --from=builder --chown=docker:docker /tmp/magento /var/www/html
 WORKDIR /var/www/html
 COPY --chown=docker:docker .platform/env.php /var/www/html/app/etc/env.php
+# This env.php sets the host-derived values as CONFIG__ variables, outside the
+# `system` section Magento hashes. The operator reads the label from the image
+# and leaves those values out of its import hash.
+LABEL app.deployyy.config-env="1"
 # Numeric, so the kubelet can verify runAsNonRoot without a securityContext.
 LABEL app.deployyy.pod-security="restricted"
 USER 1000:1000

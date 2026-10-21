@@ -17,6 +17,11 @@ are noted per entry.
 
 ### Magento
 
+- **A configuration-only release no longer needs the maintenance page.** The
+  Magento recipes disable Magento's configuration check (plugin `configHash`)
+  and label the image `app.deployyy.config-check=off`, so the previous
+  release keeps serving through `app:config:import`. The build fails when the
+  plugin still runs. See the README, "Configuration check".
 - **A new host no longer answers 500 until the configuration import.** The
   Magento and Mage-OS recipes' `env.php` sets the base URLs, admin URL, cookie
   domain, static and media bases, search host and page cache as `CONFIG__…`

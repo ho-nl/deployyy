@@ -82,6 +82,11 @@ RUN set -eu; \
       sed 's/^/    "/; s/$/",/' /tmp/cache_types.txt; \
       echo "];"; } > app/etc/cache_types.php; \
     echo "Cache types: $(wc -l < /tmp/cache_types.txt), $(tr '\n' ' ' < /tmp/cache_types.txt)"
+# Magento's configuration check off: the module Deployyy_ConfigCheckOff disables the
+# plugin configHash, so web pods of the previous configuration keep serving after
+# app:config:import (README, "Configuration check"). The runtime stage verifies the
+# compiled plugin lists.
+RUN php .platform/config-check-off.php install
 # Static content must be deployed for EVERY locale the store views use. The build is
 # DB-less, so Magento cannot discover the locales itself (they live in core_config_data
 # as general/locale/code per store) — they must be listed explicitly (scaffold.py's
@@ -173,6 +178,10 @@ COPY --chown=docker:docker .platform/env.php /var/www/html/app/etc/env.php
 # `system` section Magento hashes. The operator reads the label from the image
 # and leaves those values out of its import hash.
 LABEL app.deployyy.config-env="1"
+# Magento's configuration check (plugin configHash) is disabled; the build fails
+# otherwise (below). The operator then imports a configuration-only release while
+# the previous pods serve.
+LABEL app.deployyy.config-check="off"
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
@@ -233,14 +242,16 @@ RUN printf '%s\n' '<?php' '(static function (): void { require __DIR__ . "/env.p
 ENV PHP_INI_AUTO_PREPEND_FILE=/usr/local/lib/deployyy/prepend.php
 USER 1000:1000
 # A script as the runtime user (docker, uid 1000) must run the prepend file, or the
-# build fails. `php -r` skips auto_prepend_file, so the check is a script.
+# build fails. `php -r` skips auto_prepend_file, so the check is a script. The plugin
+# configHash must be off in every compiled area, or the build fails.
 RUN printf '%s\n' '<?php' \
       'if (!isset($_ENV["CONFIG__DEFAULT__CATALOG__SEARCH__OPENSEARCH_SERVER_HOSTNAME"])) {' \
       '    fwrite(STDERR, "auto_prepend_file did not run as " . get_current_user() . "\n");' \
       '    exit(1);' \
       '}' \
       'echo "auto_prepend_file ran\n";' > /tmp/prepend-check.php \
-    && php /tmp/prepend-check.php && rm /tmp/prepend-check.php
+    && php /tmp/prepend-check.php && rm /tmp/prepend-check.php \
+    && php .platform/config-check-off.php verify
 ENTRYPOINT ["/usr/local/bin/deployyy-php-entrypoint.sh"]
 CMD ["php-fpm"]
 

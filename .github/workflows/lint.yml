@@ -36,6 +36,6 @@ jobs:
       # stay the same in both; a fix to one belongs in the other.
       - name: Shared Magento support files have not drifted
         run: |
-          for f in nginx-default.conf sendmail-tagged check-patches.php; do
+          for f in nginx-default.conf sendmail-tagged check-patches.php config-check-off.php; do
             diff -u "recipes/mageos-3/platform/$f" "recipes/magento/platform/$f"
           done

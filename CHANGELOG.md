@@ -4,6 +4,29 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-10-21
+
+### Magento
+
+- **A new host no longer answers 500 until the configuration import.** The
+  Magento and Mage-OS recipes' `env.php` sets the base URLs, admin URL, cookie
+  domain, static and media bases, search host and page cache as `CONFIG__…`
+  variables instead of in its `system` section. Magento's configuration hash
+  covers only `system`, so a rename, a new domain or a store view's host no
+  longer makes Magento refuse every uncached request ("The configuration file
+  has changed") until `app:config:import` runs. Measured before: 4 s and 3 s
+  of 500 on a preview whose base URL moved. The Magento cache key prefix is a
+  digest of that configuration, so pods of the previous configuration cannot
+  write their base URLs back into the new pods' cache. Takes effect at a
+  project's next build; that release imports the configuration once and starts
+  on an empty cache.
+- **Project `CONFIG__…` variables take effect.** The recipe's PHP leaves
+  `$_ENV` empty (`variables_order` `GPCS`), and Magento reads these variables
+  from `$_ENV` only, so a project's `CONFIG__…` variable was ignored. `env.php`
+  now copies them from the process environment. A project variable set for a
+  path the platform pins (see README, `env.php` is the platform's) is
+  replaced. Takes effect at a project's next build.
+
 ## 2026-10-20
 
 ### Builds

@@ -303,6 +303,14 @@ COPY --chown=docker:docker .platform/env.php /var/www/html/app/etc/env.php
 LABEL app.deployyy.config-env="1"
 # Numeric, so the kubelet can verify runAsNonRoot without a securityContext.
 LABEL app.deployyy.pod-security="restricted"
+# Magento rewrites app/etc/env.php as static values whenever it saves deployment
+# config (DeploymentConfig\Writer), which drops env.php's $_ENV assignments of the
+# CONFIG__ values. A read-only copy runs before every PHP script, in its own scope, so
+# every request and command gets them.
+COPY --chmod=0444 .platform/env.php /usr/local/lib/deployyy/env.php
+RUN printf '%s\n' '<?php' '(static function (): void { require __DIR__ . "/env.php"; })();' \
+      > /usr/local/lib/deployyy/prepend.php && chmod 0444 /usr/local/lib/deployyy/prepend.php
+ENV PHP_INI_AUTO_PREPEND_FILE=/usr/local/lib/deployyy/prepend.php
 USER 1000:1000
 ENTRYPOINT ["/usr/local/bin/deployyy-php-entrypoint.sh"]
 CMD ["php-fpm"]

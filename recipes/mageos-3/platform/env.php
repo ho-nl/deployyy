@@ -83,6 +83,10 @@ $config = [
         ],
     ],
     'cache' => [
+        // Magento writes a missing GraphQL cache id salt into env.php on the first
+        // GraphQL request (GraphQlCache CacheIdCalculator::getSalt), which rewrites
+        // this file as static values. One salt per environment, from its crypt key.
+        'graphql' => ['id_salt' => substr(hash('sha256', 'graphql-id-salt:' . $e('MAGENTO_CRYPT_KEY', '')), 0, 32)],
         'frontend' => [
             'default' => [
                 'backend' => $cacheBackend,
@@ -294,6 +298,9 @@ if ($e('MEDIA_BUCKET')) {
 // Magento reads CONFIG__ variables from $_ENV only, and php.ini-production's
 // variables_order (GPCS) leaves $_ENV empty: copy them from the process environment.
 // A pin replaces a project variable of the same path: the platform decides the hosts.
+// Magento's DeploymentConfig\Writer rewrites this file as static values when it saves
+// deployment config, which drops these assignments: the recipe image also runs a copy
+// of this file before every PHP script (auto_prepend_file, Dockerfile).
 foreach (getenv() as $name => $value) {
     if (str_starts_with($name, 'CONFIG__')) {
         $_ENV[$name] = $value;

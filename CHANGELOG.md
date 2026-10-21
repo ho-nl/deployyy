@@ -35,6 +35,15 @@ are noted per entry.
   now copies them from the process environment. A project variable set for a
   path the platform pins (see README, `env.php` is the platform's) is
   replaced. Takes effect at a project's next build.
+- **One GraphQL cache id salt per environment, and `env.php` stays as built.**
+  On its first GraphQL request Magento wrote a random salt into `env.php`, and
+  that write saves the whole file as fixed values. Each copy of a shop then had
+  its own salt, and `env.php` lost the code that reads the environment. The
+  recipes' `env.php` now sets the salt from the environment's crypt key. The
+  recipe image also runs a read-only copy of `env.php` before every PHP script,
+  so the `CONFIG__…` values apply even after Magento rewrites the file. A
+  repository with its own Dockerfile gets the salt but not that copy. Takes
+  effect at a project's next build.
 
 ## 2026-10-20
 

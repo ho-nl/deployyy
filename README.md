@@ -24,8 +24,8 @@ Keep every project variable and secret in GitHub, under the repository's
 passwords. Use variables for values that are safe to read back, such as a
 public address or a feature flag.
 
-Every value reaches the build and the running application. Magento's
-`config.php` and `env.php` read them with `getenv()`.
+Every value reaches the build. Magento's `config.php` reads them with
+`getenv()` at build time.
 
 - **Per environment**: create a GitHub Environment named after the branch,
   such as `main` or `staging`, under **Settings → Environments**. Its
@@ -38,8 +38,8 @@ Every value reaches the build and the running application. Magento's
   latest build. A redeploy or rollback without a build keeps the values of the
   last build.
 
-The Deployyy console lists variable and secret names only, read-only, with
-links back to GitHub.
+The running application reads its variables from Deployyy: Environment
+variables in the console, or `deployyy env add`.
 
 ### Step 3: Add the build workflows
 

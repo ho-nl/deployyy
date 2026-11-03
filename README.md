@@ -259,8 +259,7 @@ module, if you need one, goes in your `composer.json`.
 
 1. **Release line.** The workflow reads the release line from
    `composer.json`. For example, `mage-os/product-community-edition: 3.*` maps
-   to `mageos-3`. Mage-OS 3.x releases share one Magento 2.4.9 core and one
-   service stack, so the match is on the major version.
+   to `mageos-3`. The match is on the Mage-OS major version.
 2. **Recipe.** The workflow builds with the recipe for that line from
    [`recipes/`](recipes/): a Dockerfile plus `.platform/` support files.
    Recipe updates apply to your project on its next build.
@@ -315,6 +314,7 @@ container after it has served real traffic, and commit it as
 | Line | Directory | PHP | Status |
 |---|---|---|---|
 | `mageos-3` | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4, 8.5 not validated | Validated live on 3.2.0 and 3.4.0 with PHP 8.4 |
+| `mageos-4`, Magento core 2.4.9 | [`recipes/mageos-3/`](recipes/mageos-3/) | 8.4, 8.5 not validated | Not validated live. |
 | `magento-249`, Magento Open Source 2.4.9 | [`recipes/magento/`](recipes/magento/) | 8.4, 8.5 not validated | Image builds and starts. Not validated live. |
 | `magento-248`, 2.4.8 | [`recipes/magento/`](recipes/magento/) | 8.4 | Image builds and starts. Not validated live. |
 | `magento-247`, 2.4.7 | [`recipes/magento/`](recipes/magento/) | 8.3 | Image builds and starts. Not validated live. |

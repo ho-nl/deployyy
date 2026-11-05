@@ -1,0 +1,24 @@
+#!/bin/sh
+# Runs the commands of a Laravel release or setup step, one per line of $1, in
+# one shell, once the database accepts the login of the application. The
+# first command that fails fails the step.
+set -e
+if [ -n "$DB_HOST" ]; then
+  php -r '
+  $c = getenv("DB_CONNECTION") ?: "mysql";
+  $dsn = ($c === "pgsql" ? "pgsql" : "mysql") . ":host=" . getenv("DB_HOST") . ";port=" . getenv("DB_PORT") . ";dbname=" . getenv("DB_DATABASE");
+  for ($i = 0; $i < 150; $i++) {
+      try { new PDO($dsn, getenv("DB_USERNAME"), getenv("DB_PASSWORD")); exit(0); }
+      catch (Throwable $e) { if ($i % 15 === 0) { fwrite(STDERR, "Waiting for the database: " . $e->getMessage() . "\n"); } sleep(2); }
+  }
+  fwrite(STDERR, "The database did not accept the application login within 5 minutes.\n");
+  exit(1);
+  '
+fi
+while IFS= read -r command <&3; do
+  [ -n "$command" ] || continue
+  echo "\$ $command"
+  eval "$command"
+done 3<<EOF
+$1
+EOF

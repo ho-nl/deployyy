@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2016 # the PHP code in single quotes reads its own variables
 # The queue consumers of a Magento environment. Each pass boots Magento once,
 # declares the broker topology and starts only the consumers whose queue holds
 # a message, one at a time with the single-thread lock and 1000 messages per

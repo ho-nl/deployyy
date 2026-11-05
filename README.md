@@ -295,6 +295,11 @@ The build sets that environment's endpoint as `GC_MAGENTO_ENDPOINT`. That
 value overrides `magentoEndpoint` in `graphcommerce.config.js`. Before
 building, the build checks that the endpoint returns a GraphQL response.
 
+Storefront environments of one commit that pair with one Magento environment
+run one build. A storefront environment on another Magento environment runs a
+build of its own. A `GC_*` or `NEXT_PUBLIC_*` variable with another value per
+environment also makes a build per environment.
+
 ### Shared page cache
 
 Your project needs no cache code or cache configuration. The build wraps

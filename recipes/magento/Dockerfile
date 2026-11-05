@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1.7
 # PLATFORM BUILD RECIPE — Magento Open Source 2.4.6, 2.4.7, 2.4.8 and 2.4.9
-# (lines magento-246 … magento-249). Consumed by the reusable magento2-build
-# workflow, which overlays it into a project checkout UNLESS the project ships
+# (lines magento-246 … magento-249). The hosted build (deployyy-operator
+# internal/build) overlays it into a project checkout UNLESS the project ships
 # its own Dockerfile (a repo-local Dockerfile wins wholesale; repo-local
 # .platform/* files win per file). Derived from the live-validated mageos-3
 # recipe; the differences are marked "(not in mageos-3)".
 #
-# Build-args (the workflow resolves them):
+# Build-args (the hosted build resolves them):
 #   PHP_VERSION      — the line's default, 8.2 (2.4.6), 8.3 (2.4.7), 8.4 (2.4.8,
 #                      2.4.9), or the project's choice among the versions the
-#                      line supports (the platform's DEPLOYYY_PHP variable;
-#                      8.5 on 2.4.9 once the platform offers it).
+#                      line supports (8.5 on 2.4.9 once the platform offers
+#                      it).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
 #                      static-content:deploy (en_US default).
 #
@@ -54,8 +54,8 @@ RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
     if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
     composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 COPY --chown=docker:docker . /tmp/magento/
-# (not in mageos-3) The workflow's checkout of this repo sits in the build context; it is
-# not part of the application.
+# (not in mageos-3) A checkout of the recipes in the build context is not part of the
+# application.
 RUN rm -rf /tmp/magento/.platform-recipes
 # Fail the build for a patch that never reached the code. vaimo/composer-patches can skip
 # a patch WITHOUT failing — a header naming no installed package, or the folder scan's

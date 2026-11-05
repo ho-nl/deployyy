@@ -1,18 +1,17 @@
 # PLATFORM BUILD RECIPE — line mageos-320 (Mage OS 3.2.x = Magento core
 # 2.4.9, PHP 8.4). Owned by the platform (deployyy-operator repo,
-# platform/build/); consumed by the reusable magento2-build workflow, which
+# platform/build/). The hosted build (deployyy-operator internal/build)
 # overlays it into a project checkout UNLESS the project ships its own
-# Dockerfile (escape hatch — a repo-local Dockerfile wins wholesale, and
-# repo-local .platform/* files win per file). Improvements here reach every
-# consuming repo on their next build — the injected-copy era ("elke wees z'n
-# eigen Dockerfile") is over for repos on the caller flow.
+# Dockerfile (a repo-local Dockerfile wins wholesale, and repo-local
+# .platform/* files win per file). Improvements here reach every hosted
+# project on its next build.
 #
-# Per-project knobs arrive as build-args (the workflow resolves them):
+# Per-project knobs arrive as build-args (the hosted build resolves them):
 #   PHP_VERSION      — 8.4 (the line's default), 8.5 or 8.3, the project's choice
-#   (the platform's DEPLOYYY_PHP variable; Magento 2.4.9 supports all three;
-#   8.5 waits for its live trial before the platform offers it).
+#   (Magento 2.4.9 supports all three; 8.5 waits for its live trial before the
+#   platform offers it).
 #   PLATFORM_LOCALES — space-separated store-view locales for the DB-less
-#   static-content:deploy (from deployyy.json .build.locales; en_US default).
+#   static-content:deploy (the project's build locales; en_US default).
 ARG PHP_VERSION=8.4
 
 # Stage 1: dependencies + compile + static content

@@ -1,8 +1,8 @@
 /**
  * Platform ISR cache handler for GraphCommerce projects.
  *
- * This file is owned by the platform (ho-nl/deployyy). The build workflow
- * downloads it into the project build context as `cache-handler.mjs`. The
+ * This file is owned by the platform (ho-nl/deployyy). A project's own build
+ * workflow downloads it from `main` into the project build context as `cache-handler.mjs`. The
  * Dockerfile sets NEXT_CACHE_HANDLER_PATH=/app/cache-handler.mjs during
  * `next build` — Next's own extension point (the default value of the
  * `cacheHandler` config option). Projects carry NO cache code of their own.

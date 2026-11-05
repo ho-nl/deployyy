@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# PLATFORM BUILD RECIPE — Next.js and GraphCommerce. Consumed by the reusable
-# nextjs-build workflow (graphcommerce-build calls the same workflow), which
-# overlays it into a project checkout UNLESS the project ships its own
-# Dockerfile (a repo-local Dockerfile wins wholesale; repo-local .platform/*
+# PLATFORM BUILD RECIPE — Next.js and GraphCommerce. The hosted build
+# (deployyy-operator internal/build) overlays it into a project checkout
+# UNLESS the project ships its own Dockerfile (a repo-local Dockerfile wins wholesale; repo-local .platform/*
 # files win per file).
 #
 # The image contract the deployyy GraphCommerceApp platform runs
@@ -17,12 +16,11 @@
 # Both images run as a non-root numeric user with no setuid helpers, so they
 # run under Pod Security Standard `restricted` (docs/PSS-RESTRICTED.md).
 #
-# Build-args (the workflow resolves them): NODE_VERSION from package.json
+# Build-args (the hosted build resolves them): NODE_VERSION from package.json
 # `engines.node` or .nvmrc (20, 22 or 24); DEPLOYYY_BUILD_ID, the commit sha,
 # which becomes the Next build id unless the project sets generateBuildId.
-# Build-time environment
-# (NEXT_PUBLIC_* / GC_* repository variables and GC_* / NEXT_PUBLIC_*
-# secrets) arrives as the BuildKit secret `build-env`: it is sourced for the
+# Build-time environment (NEXT_PUBLIC_* and GC_* values) arrives as the
+# BuildKit secret `build-env`: it is sourced for the
 # build and never stored in a layer.
 ARG NODE_VERSION=22
 

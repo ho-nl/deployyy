@@ -1,7 +1,7 @@
 /**
  * Platform post-build script for GraphCommerce projects, paired with
- * `cache-handler.mjs` (same directory in ho-nl/deployyy — the build workflow
- * downloads both). Converts the pages `next build` prerendered in
+ * `cache-handler.mjs` (same directory in ho-nl/deployyy; a project's own build
+ * workflow downloads both from `main`). Converts the pages `next build` prerendered in
  * .next/server/pages/ into the cache handler's on-disk format and packs them
  * into cache-seed.tar.gz, so a deploy can pre-warm the shared cache volume
  * and the first visitors after a rollout do not pay a render.

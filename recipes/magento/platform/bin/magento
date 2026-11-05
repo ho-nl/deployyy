@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2016 # the PHP code in single quotes reads its own variables
 # Runs one bin/magento command of a release step against the environment's
 # database: setup:db:status, app:config:status, setup:upgrade,
 # app:config:import, cache:flush. The exit code is Magento's, so a status

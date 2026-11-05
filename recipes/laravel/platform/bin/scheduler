@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2016 # the PHP code in single quotes reads its own variables
 # Laravel's scheduler: each entry of DEPLOYYY_SCHEDULE, a JSON list of
 # {"every", "command"}, under supercronic from the application root. Without
 # entries, Laravel's own loop: php artisan schedule:work.

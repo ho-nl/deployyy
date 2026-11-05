@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2016 # the PHP code in single quotes reads its own variables
 # Runs the commands of a Laravel release or setup step, one per line of $1, in
 # one shell, once the database accepts the login of the application. The
 # first command that fails fails the step.

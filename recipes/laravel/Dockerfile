@@ -1,5 +1,5 @@
-# PLATFORM BUILD RECIPE — Laravel (any PHP 8.2–8.4 project). Consumed by the
-# reusable laravel-build workflow, which overlays it into a project checkout
+# PLATFORM BUILD RECIPE — Laravel (any PHP 8.2–8.4 project). The hosted build
+# (deployyy-operator internal/build) overlays it into a project checkout
 # UNLESS the project ships its own Dockerfile (a repo-local Dockerfile wins
 # wholesale; repo-local .platform/* files win per file).
 #
@@ -11,7 +11,7 @@
 #     (laravel-env + app-vars), never a baked .env;
 #   - target nginx: public/ and the server block, :8080, PHP to 127.0.0.1:9000.
 #
-# Build-args (the workflow resolves them): PHP_VERSION from composer.json's
+# Build-args (the hosted build resolves them): PHP_VERSION from composer.json's
 # `require.php`.
 ARG PHP_VERSION=8.4
 
@@ -51,6 +51,9 @@ RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
     fi
 
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm AS php-fpm
+ARG PHP_VERSION
+# The PHP version of the role `app`, read by the operator (docs/MANUAL-BUILDS.md).
+LABEL app.deployyy.php="${PHP_VERSION}"
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_PDO_PGSQL=1 PHP_EXTENSION_REDIS=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_EXTENSION_EXIF=1 \

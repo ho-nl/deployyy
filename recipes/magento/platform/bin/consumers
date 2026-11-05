@@ -1,0 +1,46 @@
+#!/bin/sh
+# The queue consumers of a Magento environment. Each pass boots Magento once,
+# declares the broker topology and starts only the consumers whose queue holds
+# a message, one at a time with the single-thread lock and 1000 messages per
+# start. The pass then pauses 30 seconds. A queue that cannot be checked
+# counts as holding a message. When Magento does not boot, the pass starts
+# every consumer that queue:consumers:list names.
+#
+# The platform env.php turns the cron consumer runner off
+# (cron_consumers_runner.cron_run false) and lets an idle consumer exit
+# (queue.consumers_wait_for_messages 0), so this loop is the only starter.
+while true; do
+  out=$(php -r '
+require "app/bootstrap.php";
+$om = Magento\Framework\App\Bootstrap::create(BP, [])->getObjectManager();
+try {
+    $om->get(Magento\Framework\Amqp\TopologyInstaller::class)->install();
+} catch (\Throwable $e) {
+}
+$check = $om->get(Magento\MessageQueue\Model\CheckIsAvailableMessagesInQueue::class);
+foreach ($om->get(Magento\Framework\MessageQueue\Consumer\ConfigInterface::class)->getConsumers() as $c) {
+    try {
+        if ($c->getConnection() === "amqp") {
+            $declared = $om->get(Magento\Framework\Amqp\ConfigPool::class)->get("amqp")->getChannel()->queue_declare($c->getQueue(), true);
+            $waiting = $declared[1] > 0;
+        } else {
+            $waiting = $check->execute($c->getConnection(), $c->getQueue());
+        }
+    } catch (\Throwable $e) {
+        $waiting = true;
+    }
+    if ($waiting) {
+        echo "consumer:", $c->getName(), "\n";
+    }
+}
+echo "consumers-checked\n";
+')
+  case "$out" in
+    *consumers-checked*) consumers=$(printf "%s\n" "$out" | sed -n "s/^consumer://p") ;;
+    *) consumers=$(php bin/magento queue:consumers:list) ;;
+  esac
+  for consumer in $consumers; do
+    php bin/magento queue:consumers:start "$consumer" --max-messages=1000 --single-thread
+  done
+  sleep 30
+done

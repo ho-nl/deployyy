@@ -254,6 +254,9 @@ RUN php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_pu
 # one listing page. The image never changes after the build, so OPcache does not check
 # file times; a dev box sets PHP_INI_OPCACHE__VALIDATE_TIMESTAMPS=1 at runtime.
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm AS php-fpm
+ARG PHP_VERSION
+# The PHP version of the role `app`, read by the operator (docs/MANUAL-BUILDS.md).
+LABEL app.deployyy.php="${PHP_VERSION}"
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_BCMATH=1 PHP_EXTENSION_SOAP=1 \
     PHP_EXTENSION_SOCKETS=1 PHP_EXTENSION_SODIUM=1 PHP_EXTENSION_XSL=1 \

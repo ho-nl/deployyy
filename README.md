@@ -129,6 +129,17 @@ module, if you need one, goes in your `composer.json`.
    Add `@skip` to the header of a patch file that must not be applied. A
    project without `patches/` is not affected.
 
+### Images
+
+The build builds each container target of the recipe and pushes one image per
+role to `<image source>/<role>:<sha7>-<key8>`. `<key8>` is the build key of the
+build inputs.
+
+| Recipe | Role `app` | Other roles |
+|---|---|---|
+| `magento`, `mageos-3`, `laravel` | target `php-fpm`, label `app.deployyy.php` | `nginx`: target `nginx` |
+| `nextjs` | target `runtime` | `cache-seed`: target `cache-seed`, optional |
+
 ### FastBoot (Magento)
 
 When your project installs
@@ -323,8 +334,9 @@ replaces the recipe file with the same name.
 ## Laravel
 
 - **PHP**: from `require.php` in `composer.json`, 8.2 to 8.4.
-- **Images**: `recipes/laravel` builds `php-fpm-<sha7>` and `nginx-<sha7>`,
-  with your Vite or Mix assets if there is a `package.json`.
+- **Images**: `recipes/laravel` builds the targets `php-fpm` (role `app`) and
+  `nginx` (role `nginx`), with your Vite or Mix assets if there is a
+  `package.json`.
 - **Own files**: a `Dockerfile` in your repository replaces the recipe. A file
   in `.platform/` replaces the recipe file with the same name.
 - **Configuration**: environment variables set `DB_*`, `REDIS_*`, `APP_URL`,

@@ -6,17 +6,15 @@
 # Job or `kubectl exec` that bypasses the entrypoint still gets its own
 # variables applied; here without sudo (the Dockerfile made the config
 # files owned by the app user). See php-entrypoint.sh.
-REGENERATE=$(/usr/bin/real_php /usr/local/bin/check_php_env_var_changes.php)
+# shellcheck source=/dev/null
+source /usr/local/bin/php_env_fingerprint.sh
+FINGERPRINT=$(php_env_fingerprint)
+read -r GENERATED_FINGERPRINT < /opt/php_env_fingerprint || GENERATED_FINGERPRINT=""
 
-if [[ "$REGENERATE" != "0" ]] && [[ "$REGENERATE" != "1" ]]; then
-  >&2 echo "Unexpected PHP proxy output:"
-  >&2 echo "$REGENERATE"
-  exit 1
-fi
-
-if [[ "$REGENERATE" == "1" ]]; then
-  /usr/bin/real_php /usr/local/bin/generate_conf.php > "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"
-  PHP_VERSION="${PHP_VERSION}" /usr/bin/real_php /usr/local/bin/setup_extensions.php | bash
+if [[ "$FINGERPRINT" != "$GENERATED_FINGERPRINT" ]]; then
+  /usr/bin/real_php -d display_errors=stderr /usr/local/bin/generate_conf.php > "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"
+  PHP_VERSION="${PHP_VERSION}" /usr/bin/real_php -d display_errors=stderr /usr/local/bin/setup_extensions.php | bash
+  echo "$FINGERPRINT" > /opt/php_env_fingerprint
 fi
 
 exec /usr/bin/real_php "$@"

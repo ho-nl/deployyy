@@ -298,7 +298,7 @@ RUN set -eux; \
     touch "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"; \
     chown -R docker:docker "/etc/php/${PHP_VERSION}/cli/conf.d" "/etc/php/${PHP_VERSION}/fpm/conf.d" \
         /var/lib/php/modules "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini" \
-        /opt/php_env_var_cache.php; \
+        /opt/php_env_fingerprint; \
     gpasswd -d docker sudo || true; \
     rm -f /etc/sudoers.d/*; \
     su docker -s /bin/bash -c /usr/local/bin/deployyy-php-entrypoint.sh

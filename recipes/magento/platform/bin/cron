@@ -1,0 +1,11 @@
+#!/bin/sh
+# Magento's cron: cron:run every minute, then each entry of DEPLOYYY_CRON, a
+# JSON list of {"every", "command"}, run from the application root. Output
+# goes to the process log.
+set -e
+mkdir -p /var/www/html/var/log
+{
+  echo '* * * * * php /var/www/html/bin/magento cron:run 2>&1'
+  php -r 'foreach (json_decode(getenv("DEPLOYYY_CRON") ?: "[]", true) ?: [] as $e) { echo trim($e["every"]), " cd /var/www/html && ", trim($e["command"]), " 2>&1\n"; }'
+} >/tmp/crontab
+exec supercronic /tmp/crontab

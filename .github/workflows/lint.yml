@@ -22,7 +22,7 @@ jobs:
           ./actionlint -color
 
       - name: shellcheck (recipe scripts)
-        run: shellcheck recipes/*/platform/*.sh recipes/*/platform/sendmail-tagged
+        run: shellcheck recipes/*/platform/*.sh recipes/*/platform/sendmail-tagged recipes/*/platform/bin/*
 
       - name: PHP and JavaScript syntax
         run: |

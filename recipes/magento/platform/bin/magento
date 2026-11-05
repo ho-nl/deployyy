@@ -1,0 +1,27 @@
+#!/bin/sh
+# Runs one bin/magento command of a release step against the environment's
+# database: setup:db:status, app:config:status, setup:upgrade,
+# app:config:import, cache:flush. The exit code is Magento's, so a status
+# command exits 2 when a change is due.
+set -e
+cd /var/www/html
+i=0
+until mysql -h "${DB_HOST:-db}" -uapp -p"$DB_PASSWORD" app -e 'SELECT 1' >/dev/null 2>&1; do
+  i=$((i + 1))
+  [ "$i" -lt 200 ] || { echo "The database on ${DB_HOST:-db} did not answer within 10 minutes."; exit 1; }
+  sleep 3
+done
+# var/ is an empty volume over the directories of the image.
+mkdir -p var/log var/cache var/page_cache var/session var/tmp var/report
+case "$1" in
+setup:upgrade)
+  # setup:upgrade checks the connection to the search engine.
+  i=0
+  until php -r '$r=@file_get_contents("http://".(getenv("OPENSEARCH_HOST") ?: "opensearch").":".(getenv("OPENSEARCH_PORT") ?: "9200")."/_cluster/health"); exit($r && preg_match("/\"status\":\"(yellow|green)\"/",$r) ? 0 : 1);'; do
+    i=$((i + 1))
+    [ "$i" -lt 120 ] || { echo "OpenSearch did not become healthy within 10 minutes."; exit 1; }
+    sleep 5
+  done
+  ;;
+esac
+exec php bin/magento "$@" --no-interaction

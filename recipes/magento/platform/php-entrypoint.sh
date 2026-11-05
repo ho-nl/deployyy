@@ -23,7 +23,9 @@ real_php=/usr/bin/real_php
 PHP_VERSION="${PHP_VERSION}" "$real_php" /usr/local/bin/setup_extensions.php | bash
 # Record the variables this config was built from, so the `php` wrapper
 # does not rebuild it on every CLI call.
-"$real_php" /usr/local/bin/check_php_env_var_changes.php > /dev/null
+# shellcheck source=/dev/null
+source /usr/local/bin/php_env_fingerprint.sh
+php_env_fingerprint > /opt/php_env_fingerprint
 "$real_php" /usr/local/bin/startup_commands.php | bash
 
 # FastBoot (graphcommerce/magento-fast-boot), when the project installs it, for the

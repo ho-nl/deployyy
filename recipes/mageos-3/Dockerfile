@@ -185,6 +185,9 @@ LABEL app.deployyy.config-env="1"
 # the previous pods serve.
 LABEL app.deployyy.config-check="off"
 USER root
+# The base image's ~/.bash_profile runs symfony-autocomplete, which prints a PHP 8.4
+# deprecation at each terminal login and keeps bash from reading ~/.profile and ~/.bashrc.
+RUN rm -f /home/docker/.bash_profile
 RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 

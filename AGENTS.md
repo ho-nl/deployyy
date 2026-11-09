@@ -18,9 +18,10 @@ Magento support file differs between `recipes/mageos-3/platform/` and
 `recipes/magento/platform/` (`nginx-default.conf`, `sendmail-tagged`,
 `check-patches.php`, `config-check-off.php`). Change both copies.
 
-A recipe change applies to every hosted project on its next build. Test a
-change against a real project build before the merge: annotate the project's
-Repository `deployyy.app/recipes-ref: <commit>`.
+A recipe change reaches an app through a recipe version that pins its commit
+(`build.commit` in kubernetes-cluster `platform/deployyy/catalog/recipes.yaml`).
+Accept a new version on a template project first, then offer it to the other
+apps (deployyy-operator `docs/RECIPES-AND-RELEASES.md` §4).
 
 ## Programs
 

@@ -266,6 +266,9 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_INI_OPCACHE__MAX_ACCELERATED_FILES=130000 PHP_INI_OPCACHE__VALIDATE_TIMESTAMPS=0 \
     TEMPLATE_PHP_INI=production
 USER root
+# The base image's ~/.bash_profile runs symfony-autocomplete, which prints a PHP 8.4
+# deprecation at each terminal login and keeps bash from reading ~/.profile and ~/.bashrc.
+RUN rm -f /home/docker/.bash_profile
 RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 

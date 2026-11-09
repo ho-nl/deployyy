@@ -65,6 +65,9 @@ WORKDIR /var/www/html
 # everything that must outlive one goes to Redis, the database or S3.
 RUN mkdir -p storage/framework/cache storage/framework/sessions \
              storage/framework/views storage/logs bootstrap/cache
+# The base image's ~/.bash_profile runs symfony-autocomplete, which prints a PHP 8.4
+# deprecation at each terminal login and keeps bash from reading ~/.profile and ~/.bashrc.
+RUN rm -f /home/docker/.bash_profile
 
 FROM nginx:1.26-alpine AS nginx
 # OS security fixes the base image does not have yet: the build's image scan

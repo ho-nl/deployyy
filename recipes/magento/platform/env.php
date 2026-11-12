@@ -9,10 +9,7 @@
  * storage) are read by their GENERIC names only (deployyy-operator
  * docs/SERVICES.md §4/§5): each service hands its processes `<NAME>_HOST`,
  * `<NAME>_PORT`, ... prefixed with the service's name, and the default recipe
- * names them after their role: db, search, session, cache, queue, media. The
- * older names (OPENSEARCH_*, REDIS_SESSION_*, REDIS_CACHE_*, RABBITMQ_*,
- * AWS_S3_*) are not read here any more; the platform stops emitting them once
- * every environment runs an image built from this file (SERVICES.md §8).
+ * names them after their role: db, search, session, cache, queue, media.
  */
 $e = static fn(string $k, $d = null) => getenv($k) !== false ? getenv($k) : $d;
 
@@ -287,8 +284,8 @@ if ($e('MEDIA_BUCKET')) {
             'region' => $e('MEDIA_REGION', 'gra'),
             'endpoint' => $e('MEDIA_ENDPOINT'),
             'path_style' => '1',
-            'key' => $e('MEDIA_ACCESS_KEY_ID'),
-            'secret' => $e('MEDIA_SECRET_ACCESS_KEY'),
+            // Magento's S3 driver reads the key from `credentials` only.
+            'credentials' => ['key' => $e('MEDIA_ACCESS_KEY_ID'), 'secret' => $e('MEDIA_SECRET_ACCESS_KEY')],
         ],
     ];
 }

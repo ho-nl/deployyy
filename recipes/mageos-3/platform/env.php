@@ -229,13 +229,14 @@ if ($cookieDomain !== false) {
     }
 }
 
-// Dedicated admin hostname — Magento's custom admin URL. When the operator sets
-// MAGENTO_ADMIN_BASE_URL (from the Environment's adminDomain) the admin is
-// served on its own host instead of the storefront's. Empty = admin stays on
-// the default host + the admin frontName (the common case).
-if ($e('MAGENTO_ADMIN_BASE_URL')) {
+// The admin gateway entry on a domain of its own: ADMIN_URL is
+// `https://admin.shop.com`, Magento's custom admin URL. Unset, or with a path
+// (the admin entry mounted at the admin path), the admin stays on the base URL
+// and the admin frontName.
+$adminUrl = $e('ADMIN_URL');
+if ($adminUrl && in_array(parse_url($adminUrl, PHP_URL_PATH) ?? '', ['', '/'], true)) {
     $pins['default/admin/url/use_custom'] = '1';
-    $pins['default/admin/url/custom'] = $e('MAGENTO_ADMIN_BASE_URL');
+    $pins['default/admin/url/custom'] = rtrim($adminUrl, '/') . '/';
 }
 
 // Pin minification to the BUILD-TIME REALITY.

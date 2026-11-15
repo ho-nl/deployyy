@@ -268,9 +268,4 @@ FROM nginx:1.26-alpine AS nginx
 ARG PLATFORM_OS_UPDATES_DAY=""
 RUN apk upgrade --no-cache
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
-# Empty Host->store map so the `include` in default.conf resolves and nginx
-# starts even when nothing is mounted (single-domain env / standalone image).
-# The operator overlays this file with the magento-host-store ConfigMap when
-# store domains are bound. See nginx-default.conf.
-RUN printf '# no store domains bound\n' > /etc/nginx/host-store.map
 COPY --from=builder /tmp/magento/pub /var/www/html/pub

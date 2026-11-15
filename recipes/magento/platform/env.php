@@ -181,34 +181,30 @@ if ($e('DEPLOYYY_URL')) {
     $pins['default/web/url/redirect_to_base'] = '0';
 }
 
-// Per-scope base URLs. A store-scope or website-scope `web/*/base_url` row in
-// core_config_data outranks the default scope above, so a copied, moved or imported
-// database hands out the host it came from on every store view that carries one. The
-// operator reads every store view and website from the database and emits a JSON
-// object per scope, {code: base_url}: MAGENTO_STORE_BASE_URLS (a store view's own host,
-// a store host on a non-production environment, else the canonical base URL) and
-// MAGENTO_WEBSITE_BASE_URLS (the website's default store view's). A code the database
-// does not hold is ignored. The paired nginx Host->MAGE_RUN_CODE map makes a Luma
-// frontend resolve a store view with its own host natively; a headless GraphCommerce
-// frontend ignores the run code but still needs these for correct absolute URLs.
+// Per-scope base URLs. A host whose host values hold MAGE_RUN_CODE opens that store view
+// (MAGE_RUN_TYPE store or absent) or that website (MAGE_RUN_TYPE website), so the base
+// URL of that scope is the host. DEPLOYYY_DOMAINS holds each host of the environment with
+// its host values; the first host of a code wins, in the order of the hosts. Every other
+// scope takes the default scope above: the platform removes the base URLs of the store
+// and website scopes from core_config_data. A code the database does not hold is ignored.
 //
 // base_link_url is left to the database: a headless shop points it at its storefront
 // (customer e-mails, password reset links and the sitemap link to the frontend, not
 // to this backend).
 $scopes = ['default'];
-foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_BASE_URLS'] as $scope => $var) {
-    $baseUrls = json_decode((string) $e($var, ''), true);
-    if (!is_array($baseUrls)) {
+$domains = json_decode((string) $e('DEPLOYYY_DOMAINS', ''), true);
+foreach (is_array($domains) ? $domains : [] as $host => $values) {
+    $code = is_array($values) ? ($values['MAGE_RUN_CODE'] ?? '') : '';
+    if (!is_string($host) || !is_string($code) || !preg_match('/^[A-Za-z][A-Za-z0-9_]{0,63}$/', $code)) {
         continue;
     }
-    foreach ($baseUrls as $code => $baseUrl) {
-        if (!is_string($code) || !is_string($baseUrl) || $baseUrl === '') {
-            continue;
-        }
-        $scopes[] = "$scope/$code";
-        $pins["$scope/$code/web/unsecure/base_url"] = $baseUrl;
-        $pins["$scope/$code/web/secure/base_url"] = $baseUrl;
+    $scope = (($values['MAGE_RUN_TYPE'] ?? 'store') === 'website' ? 'websites' : 'stores') . "/$code";
+    if (in_array($scope, $scopes, true)) {
+        continue;
     }
+    $scopes[] = $scope;
+    $pins["$scope/web/unsecure/base_url"] = "https://$host/";
+    $pins["$scope/web/secure/base_url"] = "https://$host/";
 }
 
 // Below production (DEPLOYYY_ENV staging, preview or development) the environment

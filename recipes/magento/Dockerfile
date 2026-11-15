@@ -352,17 +352,13 @@ CMD ["php-fpm"]
 # 8080 (the platform port), pid and temp files under /tmp — no root, no capabilities.
 FROM nginxinc/nginx-unprivileged:1.26-alpine AS nginx
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
-# Empty Host->store map so the `include` in default.conf resolves and nginx starts even
-# when nothing is mounted. The operator overlays this file with the magento-host-store
-# ConfigMap when store domains are bound. See nginx-default.conf.
 USER root
 # OS security fixes the base image does not have yet: the build's image scan
 # fails on a fixable CRITICAL finding (.github/actions/build-scan).
 # PLATFORM_OS_UPDATES_DAY (the build date) re-runs this once a day even when
 # the layer is cached. nginx itself comes from nginx.org and is not upgraded.
 ARG PLATFORM_OS_UPDATES_DAY=""
-RUN apk upgrade --no-cache \
-    && printf '# no store domains bound\n' > /etc/nginx/host-store.map
+RUN apk upgrade --no-cache
 USER 101:101
 COPY --from=builder /tmp/magento/pub /var/www/html/pub
 LABEL app.deployyy.pod-security="restricted"

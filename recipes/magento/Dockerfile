@@ -274,7 +274,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-c
 
 # Mailpit sendmail drop-in: PHP's mail() pipes to sendmail, which this image lacks, so
 # Magento mail failed SILENTLY. sendmail-tagged relays over SMTP to MP_SENDMAIL_SMTP_ADDR
-# (the platform's Mailpit catcher) and adds X-Tags from MAIL_TAG. The ini paths are
+# (the platform's Mailpit catcher) and adds X-Tags from DEPLOYYY_BRANCH_URL. The ini paths are
 # PHP-version-specific, so they follow $PHP_VERSION (the base image sets it). Both fpm AND
 # cli: cron and consumers send mail from the CLI SAPI.
 ENV MAILPIT_VERSION=v1.30.6 \

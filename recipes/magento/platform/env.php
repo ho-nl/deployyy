@@ -1,8 +1,7 @@
 <?php
 /**
- * Platform-injected Magento env.php. Reads configuration from environment
- * variables provided by the platform stack (the magento-env ConfigMap, the
- * services-env Secret and the operator-synced secrets), so the image is
+ * Platform-injected Magento env.php. Reads configuration from the variables of
+ * the environment (deployyy-operator docs/VARIABLES.md), so the image is
  * environment-agnostic.
  *
  * The services (database, search, session store, cache, queue, media
@@ -145,15 +144,15 @@ if (($e('QUEUE_HOST') ?? '') !== '') {
 
 // The page cache in front of this environment (App.spec.front.pageCache).
 // Varnish on (the default) caches the pages and gets Magento's purges
-// (caching_application 2). Off, the operator leaves VARNISH_HOST empty and
+// (caching_application 2). Off, the platform sets no PAGE_CACHE_HOST and
 // Magento serves its built-in full page cache (caching_application 1). The
 // setting is pinned both ways, because the database's own value names the
 // cache of the host it came from: the built-in cache behind Varnish marks
 // every page uncacheable for Varnish, and Varnish without Varnish leaves the
 // shop without any page cache.
-$varnishHost = $e('VARNISH_HOST', 'varnish-service');
-if ($varnishHost !== '') {
-    $config['http_cache_hosts'] = [['host' => $varnishHost, 'port' => 80]];
+$pageCacheHost = $e('PAGE_CACHE_HOST', '');
+if ($pageCacheHost !== '') {
+    $config['http_cache_hosts'] = [['host' => $pageCacheHost, 'port' => $e('PAGE_CACHE_PORT', '80')]];
     $pins['default/system/full_page_cache/caching_application'] = '2';
 } else {
     $pins['default/system/full_page_cache/caching_application'] = '1';
@@ -168,14 +167,15 @@ $config['queue']['consumers_wait_for_messages'] = 0;
 
 // Pin the base URL from the environment rather than trusting core_config_data. A
 // database imported from another environment carries THAT environment's base_url, which
-// would redirect this environment away from itself. Changing MAGENTO_BASE_URL in the
-// magento-env ConfigMap moves the environment to a new host.
+// would redirect this environment away from itself. DEPLOYYY_URL is the host of the
+// environment: its first domain, else the branch host.
 //
 // Guarded: an unset var must not write a null base_url, which breaks Magento.
 // This is the default scope; the store and website scopes follow below.
-if ($e('MAGENTO_BASE_URL')) {
-    $pins['default/web/unsecure/base_url'] = $e('MAGENTO_BASE_URL');
-    $pins['default/web/secure/base_url'] = $e('MAGENTO_BASE_URL');
+if ($e('DEPLOYYY_URL')) {
+    $baseUrl = 'https://' . $e('DEPLOYYY_URL') . '/';
+    $pins['default/web/unsecure/base_url'] = $baseUrl;
+    $pins['default/web/secure/base_url'] = $baseUrl;
     // redirect_to_base=0 so the env still SERVES on its other hosts (the automatic
     // deployyy.app host always routes) instead of 301-ing them to the canonical one.
     $pins['default/web/url/redirect_to_base'] = '0';
@@ -211,20 +211,19 @@ foreach (['stores' => 'MAGENTO_STORE_BASE_URLS', 'websites' => 'MAGENTO_WEBSITE_
     }
 }
 
-// Below production (the operator sets MAGENTO_COOKIE_DOMAIN, empty, on every
-// non-production environment) the environment serves platform hosts only, so the
-// database's host-specific settings from another environment must not apply:
+// Below production (DEPLOYYY_ENV staging, preview or development) the environment
+// serves platform hosts only, so the database's host-specific settings from another
+// environment must not apply:
 // - cookies are host-only: a cookie domain carried over makes the browser drop every
 //   cookie (no session, no cart, no admin login);
 // - static and media follow the pinned base URL (an empty base is derived from the
 //   scope's base_url; the platform serves /static and /media on every host it routes),
 //   where a copied database names another environment's or a production CDN's host.
-// Unset, as on production, the database's values stand: a shop may share cookies
-// across its own subdomains or serve media from a host of its own.
-$cookieDomain = getenv('MAGENTO_COOKIE_DOMAIN');
-if ($cookieDomain !== false) {
+// On production, and outside the platform, the database's values stand: a shop may
+// share cookies across its own subdomains or serve media from a host of its own.
+if ($e('DEPLOYYY_ENV', 'production') !== 'production') {
     foreach ($scopes as $scope) {
-        $pins["$scope/web/cookie/cookie_domain"] = $cookieDomain;
+        $pins["$scope/web/cookie/cookie_domain"] = '';
         foreach (['unsecure', 'secure'] as $secure) {
             $pins["$scope/web/$secure/base_static_url"] = '';
             $pins["$scope/web/$secure/base_media_url"] = '';

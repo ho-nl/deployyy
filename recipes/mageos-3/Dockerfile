@@ -195,10 +195,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-c
 # exist in this image — so Magento mail failed SILENTLY (no error, no message, nothing
 # in Mailpit; the admin forgot-password POST still returned its normal 302). Point
 # sendmail_path at the sendmail-tagged shim, which relays over SMTP to
-# MP_SENDMAIL_SMTP_ADDR (set by the platform's magento-env ConfigMap) via the mailpit
-# binary — and, when MAIL_TAG is set (ephemeral/preview envs), prepends an X-Tags header
-# so the customer family's shared Mailpit tags each message with its env (see the shim's
-# header).
+# MP_SENDMAIL_SMTP_ADDR (a platform variable) via the mailpit binary, and prepends an
+# X-Tags header with DEPLOYYY_BRANCH_URL so the project's shared Mailpit tags each message
+# with its environment (see the shim's header).
 #
 # The ini paths are PHP-VERSION-SPECIFIC (/etc/php/<version>/{fpm,cli}/conf.d/), so they
 # are templated from $PHP_VERSION, the same version the base images use — hardcoding one

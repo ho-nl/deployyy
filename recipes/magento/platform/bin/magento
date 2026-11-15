@@ -18,7 +18,7 @@ case "$1" in
 setup:upgrade)
   # setup:upgrade checks the connection to the search engine.
   i=0
-  until php -r '$r=@file_get_contents("http://".(getenv("OPENSEARCH_HOST") ?: "opensearch").":".(getenv("OPENSEARCH_PORT") ?: "9200")."/_cluster/health"); exit($r && preg_match("/\"status\":\"(yellow|green)\"/",$r) ? 0 : 1);'; do
+  until php -r '$r=@file_get_contents("http://".(getenv("SEARCH_HOST") ?: "opensearch").":".(getenv("SEARCH_PORT") ?: "9200")."/_cluster/health"); exit($r && preg_match("/\"status\":\"(yellow|green)\"/",$r) ? 0 : 1);'; do
     i=$((i + 1))
     [ "$i" -lt 120 ] || { echo "OpenSearch did not become healthy within 10 minutes."; exit 1; }
     sleep 5

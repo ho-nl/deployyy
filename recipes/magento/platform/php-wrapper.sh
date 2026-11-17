@@ -6,6 +6,8 @@
 # Job or `kubectl exec` that bypasses the entrypoint still gets its own
 # variables applied; here without sudo (the Dockerfile made the config
 # files owned by the app user). See php-entrypoint.sh.
+PHP_EXTENSIONS="${PHP_EXTENSIONS:-$(</usr/local/lib/deployyy/php-extensions)}"
+export PHP_EXTENSIONS
 # shellcheck source=/dev/null
 source /usr/local/bin/php_env_fingerprint.sh
 FINGERPRINT=$(php_env_fingerprint)

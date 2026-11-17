@@ -4,6 +4,28 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-11-17
+
+### Builds
+
+- **A PHP build turns on the extensions that composer.json requires.** The
+  Magento, Mage-OS and Laravel recipes read the `ext-*` requirements of
+  `composer.json` and of each package in `composer.lock`, and turn on each one
+  that the image has, in the build and in the image. A project that requires
+  `ext-imagick` builds without a variable. The build log names the extensions.
+- **PHP image variables reach the build.** Each build step that runs PHP or
+  composer reads the `PHP_*` and `COMPOSER_VERSION` variables of the phase
+  Build. `COMPOSER_VERSION` selects the Composer of the build.
+
+### PHP
+
+- **Every PHP process reads the image variables.** The Magento and Mage-OS
+  entrypoint links php.ini to `TEMPLATE_PHP_INI` and generates the locales of
+  `LOCALES`. The Laravel image starts its entrypoint and `php` with the
+  extensions of the build. See the README, "PHP configuration". Takes effect
+  at a project's next build, with deployyy-operator processes that start
+  through the image entrypoint.
+
 ## 2026-10-21
 
 ### Builds

@@ -251,6 +251,35 @@ check. `app:config:status` and `config:set` still compare the hashes.
 A release line without a recipe fails the build, with the list of supported
 lines. Adobe Commerce has no recipe. For Adobe Commerce, add your own `Dockerfile`.
 
+## PHP configuration
+
+The Magento, Mage-OS and Laravel images are
+[thecodingmachine/php](https://github.com/thecodingmachine/docker-images-php/tree/v5)
+v5 images. Set these variables of the image as Deployyy variables:
+
+| Variable | Phase | Example |
+|---|---|---|
+| `PHP_EXTENSION_<NAME>` | Build, Runtime | `PHP_EXTENSION_IMAGICK=1`, `PHP_EXTENSION_GD=0` |
+| `PHP_INI_<SETTING>` | Build, Runtime | `PHP_INI_MAX_EXECUTION_TIME=60`, `PHP_INI_OPCACHE__ENABLE=1` |
+| `TEMPLATE_PHP_INI` | Runtime | `production` or `development` |
+| `LOCALES` | Runtime | `nl_NL.UTF-8 de_DE.UTF-8` |
+| `COMPOSER_VERSION` | Build | `2.7.9` or `2.2` |
+
+- **Build**: each build step that runs PHP or composer reads the `PHP_*` and
+  `COMPOSER_VERSION` variables of the phase Build.
+- **Runtime**: each process, release step and shell starts through the image
+  entrypoint ([`php-entrypoint.sh`](recipes/magento/platform/php-entrypoint.sh)
+  on Magento and Mage-OS) and reads the variables of the phase Runtime.
+- **Extensions of `composer.json`**: the build turns on each extension that
+  `composer.json` or a package in `composer.lock` requires, such as
+  `ext-imagick`, when the image has it. The build log names them on the line
+  `PHP extensions turned on for composer.json`. `PHP_EXTENSION_<NAME>=0`
+  turns one off.
+
+Deployyy refuses the variables of the image that a Deployyy feature replaces,
+such as `CRON_*` and `PHP_FPM_PM_*`: see deployyy-operator
+[`docs/VARIABLES.md`](https://github.com/ho-nl/deployyy-operator/blob/main/docs/VARIABLES.md#php-image-variables).
+
 ## Unprivileged images
 
 Images from `recipes/magento` and `recipes/nextjs` run as a non-root user,

@@ -22,6 +22,7 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
     PHP_EXTENSION_SOCKETS=1 PHP_EXTENSION_SODIUM=1 PHP_EXTENSION_XSL=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_INI_MEMORY_LIMIT=4G
 
+COPY .platform/php-extensions.php .platform/php-build-env.sh /usr/local/lib/deployyy/
 USER docker
 COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 # The project's own patches (vaimo/composer-patches, `extra.patches-search: patches` or
@@ -36,11 +37,16 @@ COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
 COPY --chown=docker:docker composer.json patche[s] /tmp/magento/patches/
 RUN rm -f /tmp/magento/patches/composer.json
 WORKDIR /tmp/magento
+# The extensions that composer.json and composer.lock require: on in each PHP step
+# (php-build-env.sh, with the PHP_* build variables) and in the image (php-entrypoint.sh).
+RUN php /usr/local/lib/deployyy/php-extensions.php /tmp/php-extensions
 # composer's credentials (auth.json content) arrive as the BuildKit secret composer-auth,
 # exported as COMPOSER_AUTH for this step only: they are in no layer and no build cache,
 # and a changed token (a hosted build gets a new GitHub token per build) does not change
 # this step's cache key.
-RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
     if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
     composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 COPY --chown=docker:docker . /tmp/magento/
@@ -50,10 +56,14 @@ COPY --chown=docker:docker . /tmp/magento/
 # says "Nothing to patch", stays green and ships the code unpatched (deployyy-operator
 # #276). This checks the installed code itself: every *.patch in patches/ must reverse
 # cleanly in its target package, or the build stops naming the file.
-RUN php .platform/check-patches.php
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    php .platform/check-patches.php
 # Ensure app/etc/config.php defines default store scopes — static-content:deploy
 # needs a default website at build time (no DB). Injected only if absent.
-RUN php -r '$f="app/etc/config.php"; $c=file_exists($f)?(include $f):[]; if(empty($c["scopes"]["websites"])){ $c["scopes"]=["websites"=>["base"=>["website_id"=>"1","code"=>"base","name"=>"Main Website","sort_order"=>"0","default_group_id"=>"1","is_default"=>"1"]],"groups"=>["1"=>["group_id"=>"1","website_id"=>"1","name"=>"Main Website Store","root_category_id"=>"2","default_store_id"=>"1"]],"stores"=>["default"=>["store_id"=>"1","code"=>"default","website_id"=>"1","group_id"=>"1","name"=>"Default Store View","sort_order"=>"0","is_active"=>"1"]]]; file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"default scopes injected\n"); }'
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    php -r '$f="app/etc/config.php"; $c=file_exists($f)?(include $f):[]; if(empty($c["scopes"]["websites"])){ $c["scopes"]=["websites"=>["base"=>["website_id"=>"1","code"=>"base","name"=>"Main Website","sort_order"=>"0","default_group_id"=>"1","is_default"=>"1"]],"groups"=>["1"=>["group_id"=>"1","website_id"=>"1","name"=>"Main Website Store","root_category_id"=>"2","default_store_id"=>"1"]],"stores"=>["default"=>["store_id"=>"1","code"=>"default","website_id"=>"1","group_id"=>"1","name"=>"Default Store View","sort_order"=>"0","is_active"=>"1"]]]; file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"default scopes injected\n"); }'
 # Bake the authoritative list of cache types this codebase declares.
 #
 # A cache type that is ABSENT from env.php's `cache_types` is DISABLED — Magento's
@@ -85,7 +95,9 @@ RUN set -eu; \
 # plugin configHash, so web pods of the previous configuration keep serving after
 # app:config:import (README, "Configuration check"). The runtime stage verifies the
 # compiled plugin lists.
-RUN php .platform/config-check-off.php install
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    php .platform/config-check-off.php install
 # Static content must be deployed for EVERY locale the store views use. The build is
 # DB-less, so Magento cannot discover the locales itself (they live in core_config_data
 # as general/locale/code per store) — they must be listed explicitly (scaffold.py's
@@ -96,7 +108,9 @@ RUN php .platform/config-check-off.php install
 # in production mode Magento never generates static content on demand. `ls` lies too —
 # the missing locale dirs exist but hold ~1 file. Verify per-locale assets over HTTP.
 ARG PLATFORM_LOCALES="en_US"
-RUN php bin/magento setup:di:compile \
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    php bin/magento setup:di:compile \
     && php bin/magento setup:static-content:deploy -f -j"$(nproc)" ${PLATFORM_LOCALES} \
     && rm -rf var/cache var/page_cache var/generation
 # WORKAROUND — guarantee the adminhtml JS translation dictionary exists.
@@ -134,7 +148,9 @@ RUN set -eu; for d in pub/static/adminhtml/*/*/*/; do \
 # bucket through the same remote-storage:sync that carries the sample-data media. Written
 # only when absent. (A fresh setup:install appends its own copy to this one: the same few
 # contact-page rules twice, which is harmless.)
-RUN set -eu; for f in vendor/*/module-theme-sample-data/fixtures/styles.css; do \
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    set -eu; for f in vendor/*/module-theme-sample-data/fixtures/styles.css; do \
       [ -f "$f" ] || continue; \
       [ -e pub/media/styles.css ] || php -r '$c=preg_replace("/^\/\*[\s\S]+?\*\//","",file_get_contents($argv[1])); if(trim($c)!==""){file_put_contents("pub/media/styles.css",$c); fwrite(STDERR,"sample-data styles.css baked\n");}' "$f"; \
     done
@@ -142,7 +158,9 @@ RUN set -eu; for f in vendor/*/module-theme-sample-data/fixtures/styles.css; do 
 # Strip them so the runtime image ships a scope-free config.php: a fresh
 # setup:install owns scope creation in the DB, and a baked scope block would
 # make app:config:import choke (DataDifferenceCalculator array_combine mismatch).
-RUN php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"build-only scopes stripped\n");'
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
+    php -r '$f="app/etc/config.php"; $c=include $f; unset($c["scopes"]); file_put_contents($f,"<?php\nreturn ".var_export($c,true).";\n"); fwrite(STDERR,"build-only scopes stripped\n");'
 
 # Stage 2: php-fpm runtime
 #
@@ -216,10 +234,11 @@ RUN curl -fsSL "https://github.com/axllent/mailpit/releases/download/${MAILPIT_V
         | tee "/etc/php/${PHP_VERSION}/fpm/conf.d/zz-mailpit-sendmail.ini" \
               "/etc/php/${PHP_VERSION}/cli/conf.d/zz-mailpit-sendmail.ini" > /dev/null
 
-# Unprivileged PHP: the app user owns the few files the config step writes, the php.ini
-# templates are linked now (the base entrypoint did that as root), and sudo is gone.
+# Unprivileged PHP: the app user owns the files the config step writes (the PHP config,
+# the php.ini links of TEMPLATE_PHP_INI, the locales of LOCALES), and sudo is gone.
 COPY --chmod=0755 .platform/php-entrypoint.sh /usr/local/bin/deployyy-php-entrypoint.sh
 COPY --chmod=0755 .platform/php-wrapper.sh /usr/bin/php
+COPY --from=builder /tmp/php-extensions /usr/local/lib/deployyy/php-extensions
 RUN set -eux; \
     ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}.cli" "/etc/php/${PHP_VERSION}/cli/php.ini"; \
     ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}" "/etc/php/${PHP_VERSION}/fpm/php.ini"; \
@@ -227,7 +246,8 @@ RUN set -eux; \
     touch "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"; \
     chown -R docker:docker "/etc/php/${PHP_VERSION}/cli/conf.d" "/etc/php/${PHP_VERSION}/fpm/conf.d" \
         /var/lib/php/modules "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini" \
-        /opt/php_env_fingerprint; \
+        /opt/php_env_fingerprint /usr/lib/locale; \
+    chown docker:docker "/etc/php/${PHP_VERSION}/cli" "/etc/php/${PHP_VERSION}/fpm"; \
     gpasswd -d docker sudo || true; \
     rm -f /etc/sudoers.d/*; \
     su docker -s /bin/bash -c /usr/local/bin/deployyy-php-entrypoint.sh

@@ -20,28 +20,37 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_PDO_PGSQL=1 PHP_EXTENSION_REDIS=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_EXTENSION_EXIF=1 \
     PHP_INI_MEMORY_LIMIT=2G
+COPY .platform/php-extensions.php .platform/php-build-env.sh /usr/local/lib/deployyy/
 USER docker
 COPY --chown=docker:docker composer.json composer.lock* /tmp/app/
 WORKDIR /tmp/app
+# The extensions that composer.json and composer.lock require: on in each PHP
+# step (php-build-env.sh) and in the image (php-env.sh).
+RUN php /usr/local/lib/deployyy/php-extensions.php /tmp/php-extensions
 # Dependencies first, without the project's scripts (they need the code):
 # only composer.json/lock invalidate this layer. composer's credentials
 # (auth.json content) arrive as the BuildKit secret composer-auth, exported as
 # COMPOSER_AUTH for the step only: in no layer and no build cache, and a
 # changed token does not change the cache key.
-RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
     if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
     composer install --no-interaction --no-dev --prefer-dist --no-scripts --no-autoloader
 COPY --chown=docker:docker . /tmp/app/
-RUN --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    --mount=type=secret,id=composer-auth,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
     if [ -s /run/secrets/composer-auth ]; then export COMPOSER_AUTH="$(cat /run/secrets/composer-auth)"; fi; \
     composer install --no-interaction --no-dev --prefer-dist --optimize-autoloader
 # Front-end assets (Vite/Mix) when the project has any; node_modules stays
 # behind in this stage. git's configuration from the BuildKit secret build-env
 # (GIT_CONFIG_*: on a hosted build, a GitHub token for private git
 # dependencies) is exported for this step only. Only those single-line
-# assignments are evaluated: the other variables (NODE_ENV) would change what
-# npm installs.
+# assignments and the PHP ones are evaluated: the other variables (NODE_ENV)
+# would change what npm installs. A Vite plugin can run `php artisan`.
 RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    . /usr/local/lib/deployyy/php-build-env.sh; \
     if [ -f package.json ]; then \
       if [ -f /run/secrets/build-env ]; then set -a; \
         eval "$(sed -nE "\#^GIT_CONFIG_[A-Z0-9_]*=('[^']*'|[A-Za-z0-9_@%+=:,./-]*)\$#p" /run/secrets/build-env)"; set +a; fi; \
@@ -58,7 +67,8 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_PDO_PGSQL=1 PHP_EXTENSION_REDIS=1 \
     PHP_EXTENSION_ZIP=1 PHP_EXTENSION_PCNTL=1 PHP_EXTENSION_EXIF=1 \
     PHP_EXTENSION_OPCACHE=1 PHP_INI_OPCACHE__ENABLE=1 \
-    PHP_INI_MEMORY_LIMIT=512M PHP_INI_DATE__TIMEZONE=Europe/Amsterdam
+    PHP_INI_MEMORY_LIMIT=512M PHP_INI_DATE__TIMEZONE=Europe/Amsterdam \
+    TEMPLATE_PHP_INI=production
 COPY --from=builder --chown=docker:docker /tmp/app /var/www/html
 WORKDIR /var/www/html
 # Writable runtime directories: the container filesystem is per pod, and
@@ -68,6 +78,16 @@ RUN mkdir -p storage/framework/cache storage/framework/sessions \
 # The base image's ~/.bash_profile runs symfony-autocomplete, which prints a PHP 8.4
 # deprecation at each terminal login and keeps bash from reading ~/.profile and ~/.bashrc.
 RUN rm -f /home/docker/.bash_profile
+# The entrypoint and `php` run with PHP_EXTENSIONS of the build (php-env.sh).
+USER root
+COPY --from=builder /tmp/php-extensions /usr/local/lib/deployyy/php-extensions
+COPY --chmod=0755 .platform/php-env.sh /usr/local/bin/deployyy-php-env
+RUN mv /usr/bin/php /usr/bin/php-image \
+    && printf '%s\n' '#!/bin/sh' 'exec /usr/local/bin/deployyy-php-env /usr/bin/php-image "$@"' > /usr/bin/php \
+    && chmod 0755 /usr/bin/php
+USER docker
+ENTRYPOINT ["/usr/local/bin/deployyy-php-env", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["php-fpm"]
 
 FROM nginx:1.26-alpine AS nginx
 # OS security fixes the base image does not have yet: the build's image scan

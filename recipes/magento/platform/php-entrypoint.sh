@@ -6,9 +6,13 @@
 # Security Standard `restricted`). It does the parts of that script the
 # platform uses, as the app user:
 #   - write PHP config from PHP_INI_* variables (generated_conf.ini) and
-#     enable/disable extensions from PHP_EXTENSION_* variables — the
-#     Dockerfile made those files owned by the app user;
+#     enable/disable extensions from PHP_EXTENSION_* variables and from
+#     PHP_EXTENSIONS, which defaults to the extensions that composer.json and
+#     composer.lock require (php-extensions.php, written by the build);
+#   - link php.ini to the template of TEMPLATE_PHP_INI;
+#   - generate the locales of LOCALES, such as "nl_NL.UTF-8 de_DE";
 #   - run STARTUP_COMMAND_* variables.
+# The Dockerfile made the files of these steps owned by the app user.
 # Left out: the uid remapping and host detection for local Docker Desktop
 # use, and the CRON_* supercronic launcher (the platform runs supercronic
 # as its own container).
@@ -18,7 +22,11 @@
 # picks up the pod's own PHP_INI_* variables.
 set -euo pipefail
 
+PHP_EXTENSIONS="${PHP_EXTENSIONS:-$(</usr/local/lib/deployyy/php-extensions)}"
+export PHP_EXTENSIONS
 real_php=/usr/bin/real_php
+ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}.cli" "/etc/php/${PHP_VERSION}/cli/php.ini"
+ln -sf "/usr/lib/php/${PHP_VERSION}/php.ini-${TEMPLATE_PHP_INI}" "/etc/php/${PHP_VERSION}/fpm/php.ini"
 "$real_php" /usr/local/bin/generate_conf.php > "/etc/php/${PHP_VERSION}/mods-available/generated_conf.ini"
 PHP_VERSION="${PHP_VERSION}" "$real_php" /usr/local/bin/setup_extensions.php | bash
 # Record the variables this config was built from, so the `php` wrapper
@@ -26,6 +34,17 @@ PHP_VERSION="${PHP_VERSION}" "$real_php" /usr/local/bin/setup_extensions.php | b
 # shellcheck source=/dev/null
 source /usr/local/bin/php_env_fingerprint.sh
 php_env_fingerprint > /opt/php_env_fingerprint
+for locale in ${LOCALES:-}; do
+  name=${locale%%.*}
+  charset=UTF-8
+  case "$locale" in *.*) charset=${locale#*.} ;; esac
+  case "$charset" in [uU][tT][fF]8 | [uU][tT][fF]-8) charset=UTF-8 ;; esac
+  if [ ! -e "/usr/share/i18n/locales/$name" ]; then
+    echo "Locale $locale does not exist. Correct LOCALES." >&2
+    exit 1
+  fi
+  localedef -c -i "$name" -f "$charset" "$name.$charset" || :
+done
 "$real_php" /usr/local/bin/startup_commands.php | bash
 
 # FastBoot (graphcommerce/magento-fast-boot), when the project installs it, for the

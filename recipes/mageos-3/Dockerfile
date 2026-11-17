@@ -15,6 +15,12 @@
 ARG PHP_VERSION=8.4
 
 # Stage 1: dependencies + compile + static content
+# The directories of the composer.json path repositories, for the dependency
+# step: a change elsewhere in the code keeps the dependency layer.
+FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS path-repositories
+COPY . /tmp/src/
+RUN php /tmp/src/.platform/path-repositories.php /tmp/src /tmp/path-repositories
+
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS builder
 
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
@@ -25,6 +31,7 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_OPCACHE=1 \
 COPY .platform/php-extensions.php .platform/php-build-env.sh /usr/local/lib/deployyy/
 USER docker
 COPY --chown=docker:docker composer.json composer.lock* /tmp/magento/
+COPY --from=path-repositories --chown=docker:docker /tmp/path-repositories/ /tmp/magento/
 # The project's own patches (vaimo/composer-patches, `extra.patches-search: patches` or
 # `extra.patches` sources under ./patches/) MUST be in the context BEFORE `composer install`
 # — the plugin applies them during install, and a missing directory is a SILENT no-op:

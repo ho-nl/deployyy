@@ -15,6 +15,12 @@
 # `require.php`.
 ARG PHP_VERSION=8.4
 
+# The directories of the composer.json path repositories, for the dependency
+# step: a change elsewhere in the code keeps the dependency layer.
+FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS path-repositories
+COPY . /tmp/src/
+RUN php /tmp/src/.platform/path-repositories.php /tmp/src /tmp/path-repositories
+
 FROM thecodingmachine/php:${PHP_VERSION}-v5-fpm-node22 AS builder
 ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_PDO_MYSQL=1 PHP_EXTENSION_PDO_PGSQL=1 PHP_EXTENSION_REDIS=1 \
@@ -23,6 +29,7 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
 COPY .platform/php-extensions.php .platform/php-build-env.sh /usr/local/lib/deployyy/
 USER docker
 COPY --chown=docker:docker composer.json composer.lock* /tmp/app/
+COPY --from=path-repositories --chown=docker:docker /tmp/path-repositories/ /tmp/app/
 WORKDIR /tmp/app
 # The extensions that composer.json and composer.lock require: on in each PHP
 # step (php-build-env.sh) and in the image (php-env.sh).

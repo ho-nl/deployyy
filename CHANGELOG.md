@@ -13,6 +13,10 @@ are noted per entry.
   `composer.json` and of each package in `composer.lock`, and turn on each one
   that the image has, in the build and in the image. A project that requires
   `ext-imagick` builds without a variable. The build log names the extensions.
+- **A composer path repository builds.** The Magento, Mage-OS and Laravel
+  recipes copy the directories of the `path` repositories in `composer.json`
+  before the dependency step, so `composer install` finds them. A change
+  elsewhere in the code keeps the dependency layer.
 - **PHP image variables reach the build.** Each build step that runs PHP or
   composer reads the `PHP_*` and `COMPOSER_VERSION` variables of the phase
   Build. `COMPOSER_VERSION` selects the Composer of the build.

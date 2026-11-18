@@ -12,6 +12,10 @@ are noted per entry.
   `mariadb` and `psql` clients, so `php artisan migrate` loads the dump of
   `php artisan schema:dump` (`database/schema/`) into an empty database. Takes
   effect at a project's next build.
+- **nginx follows the Laravel deployment documentation.** Only
+  `public/index.php` runs: a request for another PHP file gets the 404 page of
+  Laravel. A project without a `robots.txt` or `favicon.ico` file serves the
+  path from a route. Takes effect at a project's next build.
 
 ## 2026-11-17
 

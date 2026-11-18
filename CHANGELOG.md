@@ -4,6 +4,15 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-11-18
+
+### Laravel
+
+- **A migrate loads a schema dump.** The Laravel image has the `mysql`,
+  `mariadb` and `psql` clients, so `php artisan migrate` loads the dump of
+  `php artisan schema:dump` (`database/schema/`) into an empty database. Takes
+  effect at a project's next build.
+
 ## 2026-11-17
 
 ### Builds

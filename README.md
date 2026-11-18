@@ -378,3 +378,6 @@ replaces the recipe file with the same name.
 - **Migrations**: `php artisan migrate --force` runs before a release serves
   traffic, unless the project declares its own release commands. If a
   migration fails, the previous release keeps serving.
+- **Schema dumps**: the image has the `mysql`, `mariadb` and `psql` clients,
+  so `php artisan migrate` loads the dump of `php artisan schema:dump` into an
+  empty database.

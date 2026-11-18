@@ -76,6 +76,12 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
     PHP_EXTENSION_OPCACHE=1 PHP_INI_OPCACHE__ENABLE=1 \
     PHP_INI_MEMORY_LIMIT=512M PHP_INI_DATE__TIMEZONE=Europe/Amsterdam \
     TEMPLATE_PHP_INI=production
+# `php artisan migrate` loads a schema dump (database/schema/) with the client
+# of the database: `mysql`, `mariadb` or `psql`.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+USER docker
 COPY --from=builder --chown=docker:docker /tmp/app /var/www/html
 WORKDIR /var/www/html
 # Writable runtime directories: the container filesystem is per pod, and

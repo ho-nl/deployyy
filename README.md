@@ -381,3 +381,7 @@ replaces the recipe file with the same name.
 - **Schema dumps**: the image has the `mysql`, `mariadb` and `psql` clients,
   so `php artisan migrate` loads the dump of `php artisan schema:dump` into an
   empty database.
+- **Web server**: nginx has the server block of the
+  [Laravel deployment documentation](https://laravel.com/docs/deployment#nginx).
+  Only `public/index.php` runs. `robots.txt` and `favicon.ico` are a file in
+  `public/` or a route.

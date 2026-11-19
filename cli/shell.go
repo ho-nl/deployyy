@@ -117,7 +117,7 @@ func shellCommand() *cobra.Command {
 			}
 			environment := found.Viewer.Teams.Nodes[0].Projects.Nodes[0].Apps.Nodes[0].Environments.Nodes[0]
 			if !environment.Actions.ShellCreate.Allowed {
-				return fmt.Errorf("No shell on %s. %s", args[0], environment.Actions.ShellCreate.Message)
+				return errors.New(environment.Actions.ShellCreate.Message)
 			}
 
 			interactive := term.IsTerminal(int(os.Stdin.Fd()))
@@ -150,7 +150,8 @@ func shellCommand() *cobra.Command {
 			}
 			change := created.EnvironmentShellCreate.ChangeID
 
-			fmt.Fprintln(os.Stderr, "Starting the shell")
+			said := "Starting the shell"
+			fmt.Fprintln(os.Stderr, said)
 			for {
 				shell, err := query[struct {
 					Node *struct {
@@ -183,11 +184,25 @@ func shellCommand() *cobra.Command {
 				if shell.Node.Actions != nil && shell.Node.Actions.ShellAttach.Allowed {
 					break
 				}
-				if status := shell.Node.Status; status != nil && slices.Contains([]string{"SUCCEEDED", "FAILED", "STOPPED", "CANCELLED", "REFUSED"}, status.Phase) {
-					return fmt.Errorf("The shell ended. %s", status.Message)
+				if status := shell.Node.Status; status != nil {
+					if slices.Contains([]string{"SUCCEEDED", "FAILED", "STOPPED", "CANCELLED", "REFUSED"}, status.Phase) {
+						return fmt.Errorf("The shell ended. %s", status.Message)
+					}
+					if status.Message != "" && status.Message != said {
+						said = status.Message
+						fmt.Fprintln(os.Stderr, said)
+					}
 				}
 				select {
 				case <-ctx.Done():
+					// A stopped wait cancels the shell, so no copy starts later.
+					if _, err := query[struct{}](context.WithoutCancel(ctx), `mutation ($input: EnvironmentChangeActionInput!) {
+  environmentChangeCancel(input: $input) {
+    changeId
+  }
+}`, map[string]any{"input": map[string]any{"environmentId": environment.ID, "changeId": change}}); err != nil {
+						return err
+					}
 					return ctx.Err()
 				case <-time.After(time.Second):
 				}

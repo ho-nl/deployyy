@@ -189,7 +189,7 @@ func TestShell(t *testing.T) {
 			io.WriteString(w, `{"data":{"environmentShellCreate":{"changeId":"change-1"}}}`)
 		case strings.Contains(request.Query, "node(id"):
 			polls++
-			fmt.Fprintf(w, `{"data":{"node":{"status":{"phase":"RUNNING"},"actions":{"shellAttach":{"allowed":%t}}}}}`, polls > 1)
+			fmt.Fprintf(w, `{"data":{"node":{"status":{"phase":"PENDING","message":"Waiting for environment main to wake."},"actions":{"shellAttach":{"allowed":%t}}}}}`, polls > 1)
 		case strings.Contains(request.Query, "environmentShellAttach"):
 			fmt.Fprintf(w, `{"data":{"environmentShellAttach":{"url":"ws%s/v1/attach","ticket":"ticket-1"}}}`, strings.TrimPrefix(server.URL, "http"))
 		}

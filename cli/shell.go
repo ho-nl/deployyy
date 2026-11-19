@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +13,9 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -29,12 +33,16 @@ type ability struct {
 // The terminal service closes with this code when the remote shell exits.
 const closeExited websocket.StatusCode = 4001
 
-// The shell opens on a copy of the environment, or on the running instance with this name.
-func shellInput(instance string) any {
-	if instance == "" {
-		return nil
+// The shell opens on a copy of the environment, or on the running instance with this name. A copy that runs scripts ends 15 minutes after the last script.
+func shellInput(instance string, interactive bool) map[string]any {
+	input := map[string]any{}
+	if instance != "" {
+		input["instance"] = instance
 	}
-	return map[string]string{"instance": instance}
+	if !interactive {
+		input["idleTimeoutSeconds"] = 900
+	}
+	return input
 }
 
 func shellCommand() *cobra.Command {
@@ -42,7 +50,7 @@ func shellCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "shell <team>/<project>/<app>/<branch>",
 		Short: "Open a shell in an environment",
-		Long:  "Opens a shell in a copy of the environment, with the build, the variables and the shared files of the environment. A shell on the same copy opens again until the copy ends.",
+		Long:  "Opens a shell in a copy of the environment, with the build, the variables and the shared files of the environment. With commands on standard input, the shell runs the commands, prints their output and exits with the status of the last command. The copy stays for 15 minutes, so the next commands start at once.",
 		Example: `  deployyy shell acme/shop/magento/main
   echo 'bin/magento indexer:status' | deployyy shell acme/shop/magento/main`,
 		Args: cobra.ExactArgs(1),
@@ -51,6 +59,17 @@ func shellCommand() *cobra.Command {
 			scope := strings.SplitN(args[0], "/", 4)
 			if len(scope) != 4 {
 				return errors.New("Name the environment as <team>/<project>/<app>/<branch>")
+			}
+			interactive := term.IsTerminal(int(os.Stdin.Fd()))
+			var script []byte
+			if !interactive {
+				var err error
+				if script, err = io.ReadAll(os.Stdin); err != nil {
+					return err
+				}
+				if len(bytes.TrimSpace(script)) == 0 {
+					return errors.New("Standard input has no commands")
+				}
 			}
 
 			found, err := query[struct {
@@ -102,7 +121,7 @@ func shellCommand() *cobra.Command {
       }
     }
   }
-}`, map[string]any{"team": scope[0], "project": scope[1], "app": scope[2], "branch": scope[3], "shell": shellInput(instance)})
+}`, map[string]any{"team": scope[0], "project": scope[1], "app": scope[2], "branch": scope[3], "shell": shellInput(instance, interactive)})
 			if err != nil {
 				return err
 			}
@@ -120,7 +139,6 @@ func shellCommand() *cobra.Command {
 				return errors.New(environment.Actions.ShellCreate.Message)
 			}
 
-			interactive := term.IsTerminal(int(os.Stdin.Fd()))
 			production := environment.Level == "PROD"
 			if production {
 				if !interactive {
@@ -142,7 +160,7 @@ func shellCommand() *cobra.Command {
 }`, map[string]any{"input": map[string]any{
 				"environmentId":     environment.ID,
 				"idempotencyKey":    rand.Text(),
-				"shell":             shellInput(instance),
+				"shell":             shellInput(instance, interactive),
 				"confirmProduction": production,
 			}})
 			if err != nil {
@@ -229,39 +247,136 @@ func shellCommand() *cobra.Command {
 			defer socket.CloseNow()
 			socket.SetReadLimit(-1)
 
-			if interactive {
-				saved, err := term.MakeRaw(int(os.Stdin.Fd()))
-				if err != nil {
-					return err
+			// A text frame is a message of the terminal service, as JSON or as plain text.
+			say := func(data []byte) {
+				var note struct{ Message string }
+				if json.Unmarshal(data, &note) != nil || note.Message == "" {
+					note.Message = string(data)
 				}
-				defer term.Restore(int(os.Stdin.Fd()), saved)
-				resized := make(chan os.Signal, 1)
-				signal.Notify(resized, syscall.SIGWINCH)
-				defer signal.Stop(resized)
-				resized <- syscall.SIGWINCH
-				go func() {
-					for range resized {
-						columns, rows, err := term.GetSize(int(os.Stdout.Fd()))
-						if err != nil {
+				fmt.Fprintf(os.Stderr, "\r\n%s\r\n", note.Message)
+			}
+
+			if !interactive {
+				// The typed lines turn the echo off and run the script in one eval. The output between the two markers is the output of the script alone.
+				marker := "__deployyy_" + rand.Text() + "_"
+				typed := " stty -echo\n __deployyy=\n"
+				for encoded := base64.StdEncoding.EncodeToString(script); encoded != ""; {
+					chunk := min(len(encoded), 512)
+					typed += " __deployyy=${__deployyy}" + encoded[:chunk] + "\n"
+					encoded = encoded[chunk:]
+				}
+				// The typed text holds each marker in two parts, so an echo of the line matches no marker.
+				typed += fmt.Sprintf(" printf %%s%%s '%[1]s' start__; eval \"$(printf %%s \"$__deployyy\" | base64 -d)\"; printf '%[1]s%%s%%d__' end_ \"$?\"; unset __deployyy; stty echo\n", marker)
+				start, end := []byte(marker+"start__"), regexp.MustCompile(marker+`end_(\d+)__`)
+				partial := regexp.MustCompile(`^` + marker + `end_\d*_?$`)
+
+				// Ctrl-C interrupts the script and leaves the shell for the next script.
+				reading := context.WithoutCancel(ctx)
+				defer context.AfterFunc(ctx, func() {
+					_ = socket.Write(reading, websocket.MessageBinary, []byte{3})
+					_ = socket.Close(websocket.StatusNormalClosure, "")
+				})()
+
+				var output []byte
+				sent, started := false, false
+				for {
+					kind, data, err := socket.Read(reading)
+					if err != nil {
+						var closed websocket.CloseError
+						switch {
+						case ctx.Err() != nil:
+							return ctx.Err()
+						case !errors.As(err, &closed):
+							return err
+						case closed.Code != closeExited:
+							return fmt.Errorf("The shell closed. %s", closed.Reason)
+						}
+						// The script ended the shell.
+						if started {
+							os.Stdout.Write(bytes.ReplaceAll(output, []byte("\r\n"), []byte("\n")))
+						}
+						return nil
+					}
+					if kind == websocket.MessageText {
+						say(data)
+						continue
+					}
+					// The first output is the prompt: the shell reads its input.
+					if !sent {
+						sent = true
+						go func() {
+							for rest := []byte(typed); len(rest) > 0; {
+								frame := min(len(rest), 32*1024)
+								if socket.Write(reading, websocket.MessageBinary, rest[:frame]) != nil {
+									return
+								}
+								rest = rest[frame:]
+							}
+						}()
+					}
+					output = append(output, data...)
+					if !started {
+						at := bytes.Index(output, start)
+						if at < 0 {
+							output = output[max(0, len(output)-len(start)):]
 							continue
 						}
-						frame, _ := json.Marshal(map[string]any{"type": "resize", "cols": columns, "rows": rows})
-						_ = socket.Write(ctx, websocket.MessageText, frame)
+						output, started = output[at+len(start):], true
 					}
-				}()
+					// A tail that is the begin of the end marker or half a line end waits for the next frame.
+					done := end.FindSubmatchIndex(output)
+					printed := len(output)
+					if done != nil {
+						printed = done[0]
+					} else {
+						for held := min(len(output), len(marker)+16); held > 0; held-- {
+							tail := string(output[len(output)-held:])
+							if strings.HasPrefix(marker+"end_", tail) || partial.MatchString(tail) {
+								printed = len(output) - held
+								break
+							}
+						}
+						for printed > 0 && output[printed-1] == '\r' {
+							printed--
+						}
+					}
+					os.Stdout.Write(bytes.ReplaceAll(output[:printed], []byte("\r\n"), []byte("\n")))
+					if done != nil {
+						status, _ := strconv.Atoi(string(output[done[2]:done[3]]))
+						_ = socket.Close(websocket.StatusNormalClosure, "")
+						if status != 0 {
+							return exitStatus(status)
+						}
+						return nil
+					}
+					output = output[printed:]
+				}
 			}
+
+			saved, err := term.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				return err
+			}
+			defer term.Restore(int(os.Stdin.Fd()), saved)
+			resized := make(chan os.Signal, 1)
+			signal.Notify(resized, syscall.SIGWINCH)
+			defer signal.Stop(resized)
+			resized <- syscall.SIGWINCH
+			go func() {
+				for range resized {
+					columns, rows, err := term.GetSize(int(os.Stdout.Fd()))
+					if err != nil {
+						continue
+					}
+					frame, _ := json.Marshal(map[string]any{"type": "resize", "cols": columns, "rows": rows})
+					_ = socket.Write(ctx, websocket.MessageText, frame)
+				}
+			}()
 			go func() {
 				buffer := make([]byte, 32*1024)
 				for {
 					read, err := os.Stdin.Read(buffer)
-					if read > 0 && socket.Write(ctx, websocket.MessageBinary, buffer[:read]) != nil {
-						return
-					}
-					if err != nil {
-						if err == io.EOF && !interactive {
-							// End of transmission: the remote shell exits at the end of the input.
-							_ = socket.Write(ctx, websocket.MessageBinary, []byte{4})
-						}
+					if err != nil || socket.Write(ctx, websocket.MessageBinary, buffer[:read]) != nil {
 						return
 					}
 				}
@@ -283,12 +398,7 @@ func shellCommand() *cobra.Command {
 					os.Stdout.Write(data)
 					continue
 				}
-				// A text frame is a message of the terminal service, as JSON or as plain text.
-				var note struct{ Message string }
-				if json.Unmarshal(data, &note) != nil || note.Message == "" {
-					note.Message = string(data)
-				}
-				fmt.Fprintf(os.Stderr, "\r\n%s\r\n", note.Message)
+				say(data)
 			}
 		},
 	}

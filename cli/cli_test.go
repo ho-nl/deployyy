@@ -7,11 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -165,10 +167,11 @@ func TestSignInThenGraphQLThenSignOut(t *testing.T) {
 	}
 }
 
-func TestShell(t *testing.T) {
+func TestShellRunsAScript(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DEPLOYYY_TOKEN", "token")
 	polls := 0
+	script := "echo catalog_product_price\n" + strings.Repeat("# a long script\n", 100) + "printf Ready; sh -c 'exit 3'"
 	mux := http.NewServeMux()
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -181,11 +184,14 @@ func TestShell(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&request)
 		switch {
 		case strings.Contains(request.Query, "teams(filter"):
-			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":null,"team":"acme"}` {
+			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":{"idleTimeoutSeconds":900},"team":"acme"}` {
 				t.Errorf("scope: %s", got)
 			}
 			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"STAGING","actions":{"shellCreate":{"allowed":true}}}]}}]}}]}}]}}}}`)
 		case strings.Contains(request.Query, "environmentShellCreate"):
+			if got, _ := json.Marshal(request.Variables["input"].(map[string]any)["shell"]); string(got) != `{"idleTimeoutSeconds":900}` {
+				t.Errorf("shell input: %s", got)
+			}
 			io.WriteString(w, `{"data":{"environmentShellCreate":{"changeId":"change-1"}}}`)
 		case strings.Contains(request.Query, "node(id"):
 			polls++
@@ -194,6 +200,7 @@ func TestShell(t *testing.T) {
 			fmt.Fprintf(w, `{"data":{"environmentShellAttach":{"url":"ws%s/v1/attach","ticket":"ticket-1"}}}`, strings.TrimPrefix(server.URL, "http"))
 		}
 	})
+	left := make(chan websocket.StatusCode, 1)
 	mux.HandleFunc("GET /v1/attach", func(w http.ResponseWriter, r *http.Request) {
 		socket, err := websocket.Accept(w, r, nil)
 		if err != nil || r.URL.Query().Get("ticket") != "ticket-1" {
@@ -201,22 +208,39 @@ func TestShell(t *testing.T) {
 			return
 		}
 		socket.Write(r.Context(), websocket.MessageText, []byte(`{"message":"The shell ends in 7 days"}`))
-		for {
+		// The output of an earlier script, then the prompt.
+		socket.Write(r.Context(), websocket.MessageBinary, []byte("__deployyy_OLD_start__old output__deployyy_OLD_end_0__\r\n/app$ "))
+		var typed []byte
+		for !bytes.Contains(typed, []byte("stty echo\n")) {
 			_, data, err := socket.Read(r.Context())
 			if err != nil {
+				t.Errorf("typed: %v", err)
 				return
 			}
-			if bytes.Equal(data, []byte{4}) {
-				socket.Close(closeExited, "")
-				return
-			}
-			socket.Write(r.Context(), websocket.MessageBinary, bytes.ToUpper(data))
+			typed = append(typed, data...)
 		}
+		// A real shell runs the typed lines. The terminal echoes the last line, ends each line with CR LF and sends small frames.
+		shell := exec.Command("sh")
+		shell.Stdin = bytes.NewReader(typed)
+		printed, _ := shell.Output()
+		echo := typed[bytes.LastIndex(typed[:len(typed)-1], []byte("\n"))+1:]
+		reply := append(echo, bytes.ReplaceAll(printed, []byte("\n"), []byte("\r\n"))...)
+		for len(reply) > 0 {
+			frame := min(len(reply), 7)
+			socket.Write(r.Context(), websocket.MessageBinary, reply[:frame])
+			reply = reply[frame:]
+		}
+		_, _, err = socket.Read(r.Context())
+		left <- websocket.CloseStatus(err)
 	})
 
-	output, err := run(t, "bin/magento\n", "shell", "acme/shop/magento/feature/cart")
-	if err != nil || output != "BIN/MAGENTO\n" || polls != 2 {
+	output, err := run(t, script, "shell", "acme/shop/magento/feature/cart")
+	if status := exitStatus(0); !errors.As(err, &status) || status != 3 || output != "catalog_product_price\nReady" || polls != 2 {
 		t.Errorf("shell: %v, output %q, polls %d", err, output, polls)
+	}
+	// The CLI leaves the shell open for the next script.
+	if code := <-left; code != websocket.StatusNormalClosure {
+		t.Errorf("the CLI closed with %d", code)
 	}
 }
 

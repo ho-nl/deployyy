@@ -25,11 +25,19 @@ func main() {
 	if errors.Is(err, context.Canceled) {
 		os.Exit(130)
 	}
+	if status := exitStatus(0); errors.As(err, &status) {
+		os.Exit(int(status))
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
+
+// The exit status of a script that `shell` ran.
+type exitStatus int
+
+func (status exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(status)) }
 
 func rootCommand() *cobra.Command {
 	root := &cobra.Command{

@@ -31,8 +31,7 @@ in the Deployyy console.
   `RUN --mount=type=secret,id=build-env`.
 
 These values reach the build only. The running application reads its
-variables from Deployyy: Environment variables in the console, or
-`deployyy env add`.
+variables from Deployyy: Environment variables in the console.
 
 To change a setting the console does not offer, contact Deployyy support.
 

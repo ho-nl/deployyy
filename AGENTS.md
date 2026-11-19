@@ -32,6 +32,22 @@ version names that image in `programs`, and the operator mounts the folder of
 the recipe at `/platform/bin/` for hosted and manual images alike
 (deployyy-operator `docs/RECIPES-AND-RELEASES.md` §3.3).
 
+## CLI
+
+[`cli/`](cli/README.md) holds the `deployyy` program in Go, and
+[`install.sh`](install.sh) installs its newest release. The CLI calls only the
+public GraphQL API of the console and the terminal service
+(deployyy-web `docs/adr/shell-access.md`, "The operator-gateway contract").
+
+```bash
+cd cli && gofmt -l . && go vet ./... && go test ./...
+shellcheck install.sh
+```
+
+A tag `v<version>` on `main` publishes a release. Give a GitHub release of
+this repository only to the CLI: `install.sh` and `deployyy update` install
+the newest release.
+
 ## Rules
 
 - `env.php` is the platform's. A project sets per-environment configuration

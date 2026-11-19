@@ -1,0 +1,268 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/coder/websocket"
+)
+
+// Runs the CLI with input as standard input and returns its standard output.
+func run(t *testing.T, input string, args ...string) (string, error) {
+	t.Helper()
+	stdin, stdout := os.Stdin, os.Stdout
+	defer func() { os.Stdin, os.Stdout = stdin, stdout }()
+	inRead, inWrite, _ := os.Pipe()
+	outRead, outWrite, _ := os.Pipe()
+	os.Stdin, os.Stdout = inRead, outWrite
+	go func() {
+		io.WriteString(inWrite, input)
+		inWrite.Close()
+	}()
+	output := make(chan string)
+	go func() {
+		all, _ := io.ReadAll(outRead)
+		output <- string(all)
+	}()
+	root := rootCommand()
+	root.SetArgs(args)
+	err := root.ExecuteContext(context.Background())
+	outWrite.Close()
+	return <-output, err
+}
+
+func TestSignInThenGraphQLThenSignOut(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var challenge string
+	var deleted, revoked bool
+	access := "access-1"
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+	reply := func(w http.ResponseWriter, value any) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(value)
+	}
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/api/graphql", func(w http.ResponseWriter, _ *http.Request) {
+		reply(w, map[string]any{"authorization_servers": []string{server.URL}, "scopes_supported": []string{"openid", "offline_access"}})
+	})
+	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
+		reply(w, map[string]string{
+			"authorization_endpoint": server.URL + "/authorize",
+			"token_endpoint":         server.URL + "/token",
+			"registration_endpoint":  server.URL + "/register",
+			"revocation_endpoint":    server.URL + "/revoke",
+		})
+	})
+	mux.HandleFunc("POST /register", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		reply(w, map[string]string{"client_id": "cli", "registration_client_uri": server.URL + "/register/cli", "registration_access_token": "registration"})
+	})
+	mux.HandleFunc("DELETE /register/cli", func(w http.ResponseWriter, r *http.Request) {
+		deleted = r.Header.Get("Authorization") == "Bearer registration"
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("client_id") != "cli" || query.Get("code_challenge_method") != "S256" || query.Get("scope") != "openid offline_access" || !strings.HasPrefix(query.Get("redirect_uri"), "http://127.0.0.1:") {
+			t.Errorf("authorize request: %s", r.URL.RawQuery)
+		}
+		challenge = query.Get("code_challenge")
+		http.Redirect(w, r, query.Get("redirect_uri")+"?code=code-1&state="+query.Get("state"), http.StatusFound)
+	})
+	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("grant_type") == "refresh_token" {
+			if r.FormValue("refresh_token") != "refresh-1" || r.FormValue("client_id") != "cli" {
+				t.Errorf("refresh request: %v", r.Form)
+			}
+			access = "access-2"
+			reply(w, map[string]any{"access_token": access, "refresh_token": "refresh-2", "token_type": "Bearer", "expires_in": 3600})
+			return
+		}
+		verifier := sha256.Sum256([]byte(r.FormValue("code_verifier")))
+		if r.FormValue("code") != "code-1" || base64.RawURLEncoding.EncodeToString(verifier[:]) != challenge {
+			t.Errorf("token request: %v", r.Form)
+		}
+		reply(w, map[string]any{"access_token": access, "refresh_token": "refresh-1", "token_type": "Bearer", "expires_in": 3600})
+	})
+	mux.HandleFunc("POST /revoke", func(_ http.ResponseWriter, r *http.Request) {
+		revoked = r.FormValue("token") == "refresh-2"
+	})
+	mux.HandleFunc("POST /api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		if r.Header.Get("Authorization") != "Bearer "+access || strings.Contains(request.Query, "refused") {
+			reply(w, map[string]any{"errors": []map[string]string{{"message": "Unauthenticated"}}})
+			return
+		}
+		reply(w, map[string]any{"data": map[string]any{"viewer": map[string]any{"preferredLoginName": "dev@example.com"}, "variables": request.Variables}})
+	})
+	openBrowser = func(address string) {
+		go func() {
+			response, err := http.Get(address)
+			if err == nil {
+				response.Body.Close()
+			}
+		}()
+	}
+
+	if _, err := run(t, "", "login"); err != nil {
+		t.Fatal(err)
+	}
+	output, err := run(t, "", "graphql", "{ viewer { preferredLoginName } }", "-v", "first=2", "-v", "slug=acme", "-v", `input={"a":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Data struct{ Variables map[string]any }
+	}
+	json.Unmarshal([]byte(output), &response)
+	if got, _ := json.Marshal(response.Data.Variables); string(got) != `{"first":2,"input":{"a":true},"slug":"acme"}` {
+		t.Errorf("variables: %s", got)
+	}
+
+	// An expired access token: the next call takes a new one with the refresh token and saves the pair.
+	file := filepath.Join(os.Getenv("HOME"), ".config", "deployyy", "accounts.json")
+	accounts, _ := os.ReadFile(file)
+	saved := map[string]map[string]any{}
+	json.Unmarshal(accounts, &saved)
+	saved[server.URL]["token"].(map[string]any)["expiry"] = "2020-01-01T00:00:00Z"
+	accounts, _ = json.Marshal(saved)
+	os.WriteFile(file, accounts, 0o600)
+	if _, err := run(t, "{ viewer { preferredLoginName } }", "graphql"); err != nil {
+		t.Fatal(err)
+	}
+	if accounts, _ = os.ReadFile(file); !strings.Contains(string(accounts), "refresh-2") || strings.Contains(string(accounts), "refresh-1") {
+		t.Errorf("the saved sign-in after a refresh: %s", accounts)
+	}
+
+	if output, err := run(t, "", "graphql", "{ refused }"); err == nil || !strings.Contains(output, "Unauthenticated") {
+		t.Errorf("a response with errors: %v %s", err, output)
+	}
+
+	if _, err := run(t, "", "logout"); err != nil || !deleted || !revoked {
+		t.Errorf("logout: %v, client deleted %v, token revoked %v", err, deleted, revoked)
+	}
+	if _, err := run(t, "", "graphql", "{ viewer { id } }"); err == nil || !strings.Contains(err.Error(), "deployyy login") {
+		t.Errorf("after logout: %v", err)
+	}
+}
+
+func TestShell(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	polls := 0
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+	mux.HandleFunc("POST /api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		switch {
+		case strings.Contains(request.Query, "teams(filter"):
+			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":null,"team":"acme"}` {
+				t.Errorf("scope: %s", got)
+			}
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"STAGING","actions":{"shellCreate":{"allowed":true}}}]}}]}}]}}]}}}}`)
+		case strings.Contains(request.Query, "environmentShellCreate"):
+			io.WriteString(w, `{"data":{"environmentShellCreate":{"changeId":"change-1"}}}`)
+		case strings.Contains(request.Query, "node(id"):
+			polls++
+			fmt.Fprintf(w, `{"data":{"node":{"status":{"phase":"RUNNING"},"actions":{"shellAttach":{"allowed":%t}}}}}`, polls > 1)
+		case strings.Contains(request.Query, "environmentShellAttach"):
+			fmt.Fprintf(w, `{"data":{"environmentShellAttach":{"url":"ws%s/v1/attach","ticket":"ticket-1"}}}`, strings.TrimPrefix(server.URL, "http"))
+		}
+	})
+	mux.HandleFunc("GET /v1/attach", func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil || r.URL.Query().Get("ticket") != "ticket-1" {
+			t.Errorf("attach: %v %s", err, r.URL.RawQuery)
+			return
+		}
+		socket.Write(r.Context(), websocket.MessageText, []byte(`{"message":"The shell ends in 7 days"}`))
+		for {
+			_, data, err := socket.Read(r.Context())
+			if err != nil {
+				return
+			}
+			if bytes.Equal(data, []byte{4}) {
+				socket.Close(closeExited, "")
+				return
+			}
+			socket.Write(r.Context(), websocket.MessageBinary, bytes.ToUpper(data))
+		}
+	})
+
+	output, err := run(t, "bin/magento\n", "shell", "acme/shop/magento/feature/cart")
+	if err != nil || output != "BIN/MAGENTO\n" || polls != 2 {
+		t.Errorf("shell: %v, output %q, polls %d", err, output, polls)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	installed := filepath.Join(t.TempDir(), "deployyy")
+	os.WriteFile(installed, []byte("old"), 0o755)
+	executable = func() (string, error) { return installed, nil }
+	name := fmt.Sprintf("deployyy-%s-%s", runtime.GOOS, runtime.GOARCH)
+	sum := sha256.Sum256([]byte("new"))
+	sums := hex.EncodeToString(sum[:]) + "  " + name + "\n"
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	releases = server.URL
+	mux.HandleFunc("HEAD /latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/tag/v9.9.9", http.StatusFound)
+	})
+	mux.HandleFunc("GET /download/v9.9.9/"+name, func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "new") })
+	mux.HandleFunc("GET /download/v9.9.9/SHA256SUMS", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, sums) })
+
+	version = "v9.9.9"
+	if _, err := run(t, "", "update"); err != nil {
+		t.Fatal(err)
+	}
+	if program, _ := os.ReadFile(installed); string(program) != "old" {
+		t.Errorf("the newest release was replaced by %q", program)
+	}
+
+	version = "v1.0.0"
+	sums = strings.Repeat("0", 64) + "  " + name + "\n"
+	if _, err := run(t, "", "update"); err == nil {
+		t.Error("a wrong checksum passed")
+	}
+	if program, _ := os.ReadFile(installed); string(program) != "old" {
+		t.Errorf("a wrong checksum installed %q", program)
+	}
+
+	sums = hex.EncodeToString(sum[:]) + "  " + name + "\n"
+	if _, err := run(t, "", "update"); err != nil {
+		t.Fatal(err)
+	}
+	if program, _ := os.ReadFile(installed); string(program) != "new" {
+		t.Errorf("the update installed %q", program)
+	}
+	if mode, _ := os.Stat(installed); mode.Mode().Perm() != 0o755 {
+		t.Errorf("mode %v", mode.Mode())
+	}
+}

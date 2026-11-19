@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // The release workflow sets the tag of the release.
@@ -65,6 +66,8 @@ func graphqlCommand() *cobra.Command {
 			var document string
 			if len(args) == 1 {
 				document = args[0]
+			} else if term.IsTerminal(int(os.Stdin.Fd())) {
+				return command.Help()
 			} else {
 				input, err := io.ReadAll(os.Stdin)
 				if err != nil {

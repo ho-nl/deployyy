@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -235,7 +237,18 @@ func shellCommand() *cobra.Command {
 
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			socket, _, err := websocket.Dial(ctx, attached.EnvironmentShellAttach.URL+"?ticket="+url.QueryEscape(attached.EnvironmentShellAttach.Ticket), nil)
+			// Each local terminal window has its own terminal in the shell, and each script types in the terminal `script`.
+			terminal := "script"
+			if interactive {
+				var window syscall.Stat_t
+				if err := syscall.Fstat(int(os.Stdin.Fd()), &window); err != nil {
+					return err
+				}
+				host, _ := os.Hostname()
+				sum := sha256.Sum256(fmt.Appendf(nil, "%s %d", host, window.Rdev))
+				terminal = "cli-" + hex.EncodeToString(sum[:4])
+			}
+			socket, _, err := websocket.Dial(ctx, attached.EnvironmentShellAttach.URL+"?ticket="+url.QueryEscape(attached.EnvironmentShellAttach.Ticket)+"&terminal="+terminal, nil)
 			if err != nil {
 				return err
 			}
@@ -260,10 +273,11 @@ func shellCommand() *cobra.Command {
 					typed += " __deployyy=${__deployyy}" + encoded[:chunk] + "\n"
 					encoded = encoded[chunk:]
 				}
-				// The typed text holds each marker in two parts, so an echo of the line matches no marker.
-				typed += fmt.Sprintf(" printf %%s%%s '%[1]s' start__; eval \"$(printf %%s \"$__deployyy\" | base64 -d)\"; printf '%[1]s%%s%%d__' end_ \"$?\"; unset __deployyy; stty echo\n", marker)
-				start, end := []byte(marker+"start__"), regexp.MustCompile(marker+`end_(\d+)__`)
-				partial := regexp.MustCompile(`^` + marker + `end_\d*_?$`)
+				// Each marker is an operating system command of the terminal, which a screen that shows the shell does not print. The typed text holds the escape as `\033`, so an echo of the line matches no marker.
+				typed += fmt.Sprintf(" printf '\\033]7770;%[1]sstart\\007'; eval \"$(printf %%s \"$__deployyy\" | base64 -d)\"; printf '\\033]7770;%[1]send_%%d\\007' \"$?\"; unset __deployyy; stty echo\n", marker)
+				marker = "\x1b]7770;" + marker
+				start, end := []byte(marker+"start\x07"), regexp.MustCompile(regexp.QuoteMeta(marker)+`end_(\d+)\x07`)
+				partial := regexp.MustCompile(`^` + regexp.QuoteMeta(marker) + `end_\d*$`)
 
 				// Ctrl-C interrupts the script and leaves the shell for the next script.
 				reading := context.WithoutCancel(ctx)

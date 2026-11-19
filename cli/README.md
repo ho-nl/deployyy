@@ -12,7 +12,7 @@
    deployyy login
    ```
 
-3. Run a query or a mutation of the GraphQL API of Deployyy:
+3. Run a query, a mutation or a subscription of the GraphQL API of Deployyy:
 
    ```bash
    deployyy graphql '{ viewer { teams { nodes { slug } } } }'
@@ -26,7 +26,11 @@
    deployyy graphql -v team=acme < projects.graphql
    ```
 
-   `-v name=value` sets a variable. A JSON value keeps its type, and each other value is a string. The command prints `data` and `errors` of the response and exits with 1 when the response has errors.
+   ```bash
+   deployyy graphql 'subscription ($id: ID!) { nodeUpdates(id: $id) { type } }' -v id=<id>
+   ```
+
+   `-v name=value` sets a variable. A JSON value keeps its type, and each other value is a string. The command prints `data` and `errors` of the response and exits with 1 when the response has errors. A subscription prints each event as one line until the API ends the stream or Ctrl-C.
 
 4. Open a shell in an environment, named as `<team>/<project>/<app>/<branch>`:
 

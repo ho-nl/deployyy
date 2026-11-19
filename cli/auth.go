@@ -279,8 +279,8 @@ func logoutCommand() *cobra.Command {
 	}
 }
 
-// Sends a GraphQL document to the API as the signed-in person and returns the response body.
-func post(ctx context.Context, document string, variables map[string]any) ([]byte, error) {
+// Sends a GraphQL document to the API as the signed-in person. The API answers a subscription with server-sent events. The caller closes the body.
+func send(ctx context.Context, document string, variables map[string]any) (*http.Response, error) {
 	origin := apiOrigin()
 	token := os.Getenv("DEPLOYYY_TOKEN")
 	if token == "" {
@@ -313,13 +313,9 @@ func post(ctx context.Context, document string, variables map[string]any) ([]byt
 		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	return io.ReadAll(response.Body)
+	return http.DefaultClient.Do(request)
 }
 
 // Runs a GraphQL document and returns its data. Each error of the response fails the call.
@@ -328,7 +324,12 @@ func query[Data any](ctx context.Context, document string, variables map[string]
 		Data   Data
 		Errors []struct{ Message string }
 	}
-	body, err := post(ctx, document, variables)
+	answer, err := send(ctx, document, variables)
+	if err != nil {
+		return response.Data, err
+	}
+	defer answer.Body.Close()
+	body, err := io.ReadAll(answer.Body)
 	if err != nil {
 		return response.Data, err
 	}

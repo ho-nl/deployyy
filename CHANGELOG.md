@@ -1,7 +1,7 @@
 # Changelog
 
 Changes to Deployyy, newest first. Each feature works in the console at
-[deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
+[deployyy.com](https://deployyy.com), the API and the MCP tools. Exceptions
 are noted per entry.
 
 ## 2026-11-19

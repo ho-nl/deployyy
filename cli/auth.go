@@ -46,7 +46,7 @@ func apiOrigin() string {
 	if origin := os.Getenv("DEPLOYYY_API"); origin != "" {
 		return strings.TrimRight(origin, "/")
 	}
-	return "https://deployyy.app"
+	return "https://deployyy.com"
 }
 
 func configDir() (string, error) {

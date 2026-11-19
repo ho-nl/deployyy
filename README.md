@@ -1,7 +1,7 @@
 # deployyy
 
 Dockerfile recipes for Magento 2, Next.js, GraphCommerce and Laravel projects
-on [Deployyy](https://deployyy.app). The hosted build of Deployyy
+on [Deployyy](https://deployyy.com). The hosted build of Deployyy
 (deployyy-operator [`internal/build`](https://github.com/ho-nl/deployyy-operator/tree/main/internal/build))
 builds each project with the recipe of its release line. A team that builds
 in its own CI follows deployyy-operator

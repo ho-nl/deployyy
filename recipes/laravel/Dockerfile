@@ -99,6 +99,10 @@ RUN mv /usr/bin/php /usr/bin/php-image \
     && printf '%s\n' '#!/bin/sh' 'exec /usr/local/bin/deployyy-php-env /usr/bin/php-image "$@"' > /usr/bin/php \
     && chmod 0755 /usr/bin/php
 USER docker
+# The links of `links` in config/filesystems.php, such as public/storage. A
+# link names its target by the path of this image, and the nginx image has
+# the app at the same path.
+RUN php artisan storage:link --force
 ENTRYPOINT ["/usr/local/bin/deployyy-php-env", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["php-fpm"]
 
@@ -110,4 +114,4 @@ FROM nginx:1.26-alpine AS nginx
 ARG PLATFORM_OS_UPDATES_DAY=""
 RUN apk upgrade --no-cache
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /tmp/app/public /var/www/html/public
+COPY --from=php-fpm /var/www/html/public /var/www/html/public

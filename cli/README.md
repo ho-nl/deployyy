@@ -38,11 +38,15 @@
 
    `--instance <name>` opens the shell on a running instance. `Environment.instances` of the API lists the names.
 
-5. Run commands from a script. The shell exits at the end of standard input:
+5. Run commands from a script or an agent. The CLI prints the output of the commands and exits with the status of the last command:
 
    ```bash
    echo 'bin/magento indexer:status' | deployyy shell acme/shop/magento/main
    ```
+
+   The copy stays for 15 minutes after the last script, so the next script starts at once. Scripts within 5 minutes run in one shell: the working directory and the variables stay. Ctrl-C stops the running script.
+
+   The CLI refuses a script on a production environment: a shell on production needs a typed confirmation.
 
 ## Updates
 

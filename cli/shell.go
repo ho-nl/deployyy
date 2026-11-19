@@ -282,7 +282,7 @@ func shellCommand() *cobra.Command {
 						case ctx.Err() != nil:
 							return ctx.Err()
 						case !errors.As(err, &closed):
-							return err
+							return errors.New("The connection to the shell was lost")
 						case closed.Code != closeExited:
 							return fmt.Errorf("The shell closed. %s", closed.Reason)
 						}
@@ -382,7 +382,7 @@ func shellCommand() *cobra.Command {
 				if err != nil {
 					var closed websocket.CloseError
 					if !errors.As(err, &closed) {
-						return err
+						return errors.New("\nThe connection to the shell was lost")
 					}
 					if closed.Code == closeExited || closed.Code == websocket.StatusNormalClosure {
 						return nil

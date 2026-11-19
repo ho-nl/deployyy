@@ -184,14 +184,11 @@ func TestShellRunsAScript(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&request)
 		switch {
 		case strings.Contains(request.Query, "teams(filter"):
-			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":{"idleTimeoutSeconds":900},"team":"acme"}` {
+			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":null,"team":"acme"}` {
 				t.Errorf("scope: %s", got)
 			}
 			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"STAGING","actions":{"shellCreate":{"allowed":true}}}]}}]}}]}}]}}}}`)
 		case strings.Contains(request.Query, "environmentShellCreate"):
-			if got, _ := json.Marshal(request.Variables["input"].(map[string]any)["shell"]); string(got) != `{"idleTimeoutSeconds":900}` {
-				t.Errorf("shell input: %s", got)
-			}
 			io.WriteString(w, `{"data":{"environmentShellCreate":{"changeId":"change-1"}}}`)
 		case strings.Contains(request.Query, "node(id"):
 			polls++

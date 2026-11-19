@@ -33,16 +33,12 @@ type ability struct {
 // The terminal service closes with this code when the remote shell exits.
 const closeExited websocket.StatusCode = 4001
 
-// The shell opens on a copy of the environment, or on the running instance with this name. A copy that runs scripts ends 15 minutes after the last script.
-func shellInput(instance string, interactive bool) map[string]any {
-	input := map[string]any{}
-	if instance != "" {
-		input["instance"] = instance
+// The shell opens on a copy of the environment, or on the running instance with this name.
+func shellInput(instance string) any {
+	if instance == "" {
+		return nil
 	}
-	if !interactive {
-		input["idleTimeoutSeconds"] = 900
-	}
-	return input
+	return map[string]string{"instance": instance}
 }
 
 func shellCommand() *cobra.Command {
@@ -50,7 +46,7 @@ func shellCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "shell <team>/<project>/<app>/<branch>",
 		Short: "Open a shell in an environment",
-		Long:  "Opens a shell in a copy of the environment, with the build, the variables and the shared files of the environment. With commands on standard input, the shell runs the commands, prints their output and exits with the status of the last command. The copy stays for 15 minutes, so the next commands start at once.",
+		Long:  "Opens a shell in a copy of the environment, with the build, the variables and the shared files of the environment. With commands on standard input, the shell runs the commands, prints their output and exits with the status of the last command. The copy stays for 15 minutes after the terminal or the script disconnects, so the next commands start at once.",
 		Example: `  deployyy shell acme/shop/magento/main
   echo 'bin/magento indexer:status' | deployyy shell acme/shop/magento/main`,
 		Args: cobra.ExactArgs(1),
@@ -121,7 +117,7 @@ func shellCommand() *cobra.Command {
       }
     }
   }
-}`, map[string]any{"team": scope[0], "project": scope[1], "app": scope[2], "branch": scope[3], "shell": shellInput(instance, interactive)})
+}`, map[string]any{"team": scope[0], "project": scope[1], "app": scope[2], "branch": scope[3], "shell": shellInput(instance)})
 			if err != nil {
 				return err
 			}
@@ -160,7 +156,7 @@ func shellCommand() *cobra.Command {
 }`, map[string]any{"input": map[string]any{
 				"environmentId":     environment.ID,
 				"idempotencyKey":    rand.Text(),
-				"shell":             shellInput(instance, interactive),
+				"shell":             shellInput(instance),
 				"confirmProduction": production,
 			}})
 			if err != nil {

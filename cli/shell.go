@@ -168,8 +168,7 @@ func shellCommand() *cobra.Command {
 			}
 			change := created.EnvironmentShellCreate.ChangeID
 
-			said := "Starting the shell"
-			fmt.Fprintln(os.Stderr, said)
+			said := ""
 			for {
 				shell, err := query[struct {
 					Node *struct {

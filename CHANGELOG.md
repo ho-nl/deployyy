@@ -4,6 +4,15 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.app](https://deployyy.app), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-11-19
+
+### CLI
+
+- **The `deployyy` CLI runs the API and a shell from a terminal.**
+  `deployyy graphql` runs a query or a mutation, and
+  `deployyy shell <team>/<project>/<app>/<branch>` opens a shell in an
+  environment. The CLI updates itself. Install: [`cli/README.md`](cli/README.md).
+
 ## 2026-11-18
 
 ### Laravel

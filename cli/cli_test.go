@@ -200,13 +200,13 @@ func TestShellRunsAScript(t *testing.T) {
 	left := make(chan websocket.StatusCode, 1)
 	mux.HandleFunc("GET /v1/attach", func(w http.ResponseWriter, r *http.Request) {
 		socket, err := websocket.Accept(w, r, nil)
-		if err != nil || r.URL.Query().Get("ticket") != "ticket-1" {
+		if err != nil || r.URL.Query().Get("ticket") != "ticket-1" || r.URL.Query().Get("terminal") != "script" {
 			t.Errorf("attach: %v %s", err, r.URL.RawQuery)
 			return
 		}
 		socket.Write(r.Context(), websocket.MessageText, []byte(`{"message":"The shell ends in 7 days"}`))
 		// The output of an earlier script, then the prompt.
-		socket.Write(r.Context(), websocket.MessageBinary, []byte("__deployyy_OLD_start__old output__deployyy_OLD_end_0__\r\n/app$ "))
+		socket.Write(r.Context(), websocket.MessageBinary, []byte("\x1b]7770;__deployyy_OLD_start\x07old output\x1b]7770;__deployyy_OLD_end_0\x07\r\n/app$ "))
 		var typed []byte
 		for !bytes.Contains(typed, []byte("stty echo\n")) {
 			_, data, err := socket.Read(r.Context())

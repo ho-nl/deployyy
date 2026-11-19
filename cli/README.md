@@ -34,7 +34,7 @@
    deployyy shell acme/shop/magento/main
    ```
 
-   The shell runs in a copy of the environment, with the build, the variables and the shared files of the environment. The CLI asks for a confirmation on a production environment. `exit` ends the copy at once.
+   The shell runs in a copy of the environment, with the build, the variables and the shared files of the environment. The CLI asks for a confirmation on a production environment. Each terminal window on your machine has its own terminal in the shell, so a script or a second window does not take over your terminal. `exit` in the last terminal ends the copy at once.
 
    `--instance <name>` opens the shell on a running instance. `Environment.instances` of the API lists the names.
 
@@ -44,7 +44,7 @@
    echo 'bin/magento indexer:status' | deployyy shell acme/shop/magento/main
    ```
 
-   The copy stays for 15 minutes after the script or a terminal disconnects, so the next script starts at once. Scripts within 5 minutes run in one shell: the working directory and the variables stay. Ctrl-C stops the running script.
+   The copy stays for 15 minutes after the script or a terminal disconnects, so the next script starts at once. Each script types in the terminal `script` of the shell: scripts within 5 minutes continue with the same working directory and variables. Ctrl-C stops the running script.
 
    The CLI refuses a script on a production environment: a shell on production needs a typed confirmation.
 

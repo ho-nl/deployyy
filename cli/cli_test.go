@@ -167,6 +167,25 @@ func TestSignInThenGraphQLThenSignOut(t *testing.T) {
 	}
 }
 
+func TestSubscriptionPrintsEachEvent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+			t.Errorf("accept: %s", r.Header.Get("Accept"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, ":\n\nevent: next\ndata: {\"data\":{\"tick\":1},\"extensions\":{}}\n\nevent: next\ndata: {\"errors\":[{\"message\":\"late\"}]}\n\nevent: complete\ndata:\n\n")
+	}))
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+
+	output, err := run(t, "", "graphql", "subscription { tick }")
+	if err == nil || output != "{\"data\":{\"tick\":1}}\n{\"errors\":[{\"message\":\"late\"}]}\n" {
+		t.Errorf("subscription: %v, output %q", err, output)
+	}
+}
+
 func TestShellRunsAScript(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DEPLOYYY_TOKEN", "token")

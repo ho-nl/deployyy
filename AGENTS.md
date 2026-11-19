@@ -10,7 +10,7 @@ that the hosted build of deployyy-operator (`internal/build`) uses.
 actionlint -color
 shellcheck recipes/*/platform/*.sh recipes/*/platform/sendmail-tagged recipes/*/platform/bin/*
 for f in recipes/*/platform/*.php; do php -l "$f"; done
-for f in graphcommerce/*.mjs recipes/*/platform/*.mjs; do node --check "$f"; done
+for f in recipes/*/platform/*.mjs; do node --check "$f"; done
 ```
 
 `.github/workflows/lint.yml` runs the same checks and fails when a shared

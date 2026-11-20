@@ -16,8 +16,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -304,6 +306,185 @@ func TestUpdate(t *testing.T) {
 	}
 	if mode, _ := os.Stat(installed); mode.Mode().Perm() != 0o755 {
 		t.Errorf("mode %v", mode.Mode())
+	}
+}
+
+// fakeFiles is the Files area of one project and its object store: the upload of one file in parts of partSize bytes.
+type fakeFiles struct {
+	t        *testing.T
+	partSize int64
+	size     int64
+	phase    string
+	listed   []int          // the parts that the status lists: the parts at the last grant
+	stored   map[int][]byte // the parts in the store
+	failOnce map[int]bool
+	puts     []int
+	request  string
+	granted  []any
+	input    map[string]any
+}
+
+func (f *fakeFiles) parts() int { return int((f.size + f.partSize - 1) / f.partSize) }
+
+func (f *fakeFiles) status() map[string]any {
+	listed := []int{}
+	listed = append(listed, f.listed...)
+	return map[string]any{"phase": f.phase, "partCount": f.parts(), "partSize": f.partSize, "uploadedParts": listed, "requestId": f.request}
+}
+
+func (f *fakeFiles) serve(mux *http.ServeMux, server func() string) {
+	mux.HandleFunc("PUT /store/{part}", func(w http.ResponseWriter, r *http.Request) {
+		var part int
+		fmt.Sscan(r.PathValue("part"), &part)
+		if r.ContentLength <= 0 || len(r.TransferEncoding) > 0 {
+			f.t.Errorf("part %d is sent without a length: %d %v", part, r.ContentLength, r.TransferEncoding)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if f.failOnce[part] {
+			delete(f.failOnce, part)
+			http.Error(w, "SlowDown", http.StatusServiceUnavailable)
+			return
+		}
+		f.puts = append(f.puts, part)
+		f.stored[part] = body
+	})
+	mux.HandleFunc("POST /api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		reply := func(data any) { json.NewEncoder(w).Encode(map[string]any{"data": data}) }
+		switch {
+		case strings.Contains(request.Query, "projects(filter"):
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"id":"project-1"}]}}]}}}}`)
+		case strings.Contains(request.Query, "projectFileUploadStart"):
+			f.input = request.Variables["input"].(map[string]any)
+			reply(map[string]any{"projectFileUploadStart": map[string]any{"file": map[string]any{"id": "file-1", "status": map[string]any{"phase": f.phase}}}})
+		case strings.Contains(request.Query, "projectFileUploadUpdate"):
+			settings := request.Variables["input"].(map[string]any)["settings"].(map[string]any)
+			if settings["complete"] == true {
+				f.phase = "Ready"
+			} else {
+				// The operator lists the stored parts when it signs a grant.
+				f.request, f.granted, f.listed = settings["requestId"].(string), settings["parts"].([]any), nil
+				for part := 1; part <= f.parts(); part++ {
+					if f.stored[part] != nil {
+						f.listed = append(f.listed, part)
+					}
+				}
+			}
+			reply(map[string]any{"projectFileUploadUpdate": map[string]any{"file": map[string]any{"id": "file-1"}}})
+		case strings.Contains(request.Query, "projectFileUploadClaim"):
+			parts := []map[string]any{}
+			for _, part := range f.granted {
+				parts = append(parts, map[string]any{"partNumber": part, "putUrl": fmt.Sprintf("%s/store/%v", server(), part)})
+			}
+			reply(map[string]any{"projectFileUploadClaim": map[string]any{"upload": map[string]any{"requestId": f.request, "parts": parts}}})
+		case strings.Contains(request.Query, "on ProjectFile"):
+			reply(map[string]any{"node": map[string]any{"status": f.status()}})
+		default:
+			f.t.Errorf("unexpected query %s", request.Query)
+		}
+	})
+}
+
+// An upload resumes: the parts that the store holds are not sent again, a part that fails is sent again, and each part has a length.
+func TestFilesUploadResumes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	pollEvery = time.Millisecond
+	content := []byte("0123456789abcdefghij")
+	local := filepath.Join(t.TempDir(), "shops.sql.gz")
+	os.WriteFile(local, content, 0o600)
+	files := &fakeFiles{t: t, partSize: 6, size: int64(len(content)), phase: "Uploading",
+		// Part 1 is listed; part 2 reached the store after the last grant of a broken run.
+		listed: []int{1}, stored: map[int][]byte{1: content[:6], 2: content[6:12]}, failOnce: map[int]bool{4: true}}
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+	files.serve(mux, func() string { return server.URL })
+
+	output, err := run(t, "", "files", "upload", local, "--project", "acme/shop", "--path", "imports")
+	if err != nil || output != "file-1\n" {
+		t.Fatalf("upload: %v, output %q", err, output)
+	}
+	block := sha256.Sum256(content)
+	want := sha256.Sum256(block[:])
+	if files.input["fileName"] != "imports/shops.sql.gz" || files.input["fingerprint"] != hex.EncodeToString(want[:]) || files.input["projectId"] != "project-1" {
+		t.Errorf("start: %v", files.input)
+	}
+	slices.Sort(files.puts)
+	if !slices.Equal(files.puts, []int{3, 4}) {
+		t.Errorf("parts sent: %v, want 3 and 4 once", files.puts)
+	}
+	if got := bytes.Join([][]byte{files.stored[1], files.stored[2], files.stored[3], files.stored[4]}, nil); !bytes.Equal(got, content) || files.phase != "Ready" {
+		t.Errorf("stored %q, phase %s", got, files.phase)
+	}
+}
+
+// An import into the running database uploads a local file, names the choice, and follows the change until it ends.
+func TestDatabaseImportIntoTheRunningDatabase(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	pollEvery = time.Millisecond
+	local := filepath.Join(t.TempDir(), "shop_9999.sql.gz")
+	os.WriteFile(local, []byte("dump"), 0o600)
+	var session, created map[string]any
+	refused, polls := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		switch {
+		case strings.Contains(request.Query, "environments(filter"):
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"PREVIEW","ownerProject":{"id":"project-1"},"status":{"services":[{"kind":"CACHE","engine":"redis-7"},{"kind":"DATABASE","engine":"percona-8.0.36"}]}}]}}]}}]}}]}}}}`)
+		case strings.Contains(request.Query, "projectFileUploadStart"):
+			if name := request.Variables["input"].(map[string]any)["fileName"]; name != "imports/shop_9999.sql.gz" {
+				t.Errorf("file name %v", name)
+			}
+			io.WriteString(w, `{"data":{"projectFileUploadStart":{"file":{"id":"file-1","status":{"phase":"Ready"}}}}}`)
+		case strings.Contains(request.Query, "environmentDatabaseImportSessionCreate"):
+			session = request.Variables["input"].(map[string]any)
+			io.WriteString(w, `{"data":{"environmentDatabaseImportSessionCreate":{"session":{"metadata":{"namespace":"shop-preview-1","name":"import-1"}}}}}`)
+		case strings.Contains(request.Query, "environmentDatabaseImportCreate"):
+			if refused == 0 {
+				refused++
+				io.WriteString(w, `{"errors":[{"message":"Select a stored archive for this environment first."}]}`)
+				return
+			}
+			created = request.Variables["input"].(map[string]any)
+			io.WriteString(w, `{"data":{"environmentDatabaseImportCreate":{"change":{"id":"gid://deployyy/DatabaseImport/shop-preview-1/database-import-1"}}}}`)
+		case strings.Contains(request.Query, "on DatabaseImport"):
+			polls++
+			phase, message := "RUNNING", "Loading 2 databases"
+			if polls > 2 {
+				phase, message = "SUCCEEDED", "The file is loaded into the running database of preview-1."
+			}
+			fmt.Fprintf(w, `{"data":{"node":{"status":{"phase":%q,"message":%q,"noticed":[{"key":"backup","value":"before-import-1"}],"steps":[{"progress":{"done":50,"of":100,"unit":"rows"}}]},"actions":{"command":{"allowed":false}}}}}`, phase, message)
+		default:
+			t.Errorf("unexpected query %s", request.Query)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+
+	output, err := run(t, "", "database", "import", local, "--environment", "acme/shop/laravel/preview-1", "--into-running", "--database", "shop_9999", "--no-backup")
+	if err != nil || output != "The file is loaded into the running database of preview-1.\n" {
+		t.Fatalf("import: %v, output %q", err, output)
+	}
+	if session["engine"] != "PERCONA" || session["fileId"] != "file-1" || session["environmentId"] != "environment-1" {
+		t.Errorf("session: %v", session)
+	}
+	if created["sessionId"] != "gid://deployyy/DatabaseImportSession/shop-preview-1/import-1" || created["into"] != "RUNNING_DATABASE" || created["database"] != "shop_9999" || created["skipBackup"] != true || created["replace"] != true {
+		t.Errorf("import: %v", created)
+	}
+
+	if _, err := run(t, "", "database", "import", local, "--environment", "acme/shop/laravel/preview-1", "--database", "shop_9999"); err == nil || !strings.Contains(err.Error(), "--into-running") {
+		t.Errorf("a database name without --into-running: %v", err)
 	}
 }
 

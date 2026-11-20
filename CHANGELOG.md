@@ -12,6 +12,10 @@ are noted per entry.
   `deployyy graphql` runs a query or a mutation, and
   `deployyy shell <team>/<project>/<app>/<branch>` opens a shell in an
   environment. The CLI updates itself. Install: [`cli/README.md`](cli/README.md).
+- **`deployyy files upload` and `deployyy database import` move a database
+  file into an environment.** The upload resumes after a broken connection.
+  `--into-running` loads the file into the running database server and keeps
+  each database that the file lacks. CLI only.
 
 ## 2026-11-18
 

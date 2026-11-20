@@ -49,7 +49,7 @@ func rootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(loginCommand(), logoutCommand(), graphqlCommand(), shellCommand(), updateCommand())
+	root.AddCommand(loginCommand(), logoutCommand(), graphqlCommand(), shellCommand(), filesCommand(), databaseCommand(), updateCommand())
 	return root
 }
 

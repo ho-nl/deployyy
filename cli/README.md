@@ -52,6 +52,34 @@
 
    The CLI refuses a script on a production environment: a shell on production needs a typed confirmation.
 
+6. Upload a file to the Files area of a project, named as `<team>/<project>`:
+
+   ```bash
+   deployyy files upload backup.sql.gz --project acme/shop --path imports
+   ```
+
+   The CLI uploads the file in parts, 4 parts at a time, and prints the ID of the stored file. The same command after a broken connection sends only the parts that the store does not hold. Without a terminal, the CLI prints one progress line per part, so a log of a background upload stays readable:
+
+   ```bash
+   nohup deployyy files upload backup.sql.gz --project acme/shop --path imports > upload.log 2>&1 &
+   ```
+
+7. Import a database file into the running database of an environment:
+
+   ```bash
+   deployyy database import backup.sql.gz --environment acme/shop/laravel/preview-1 --into-running
+   ```
+
+   A local file goes to the folder `imports` of the Files area first. Any other argument names a stored file by its path in the Files area, such as `imports/backup.sql.gz`. The CLI prints each step of the import and exits with 1 when the import fails. An import that waits for an approval prints the command that approves it.
+
+   | Option | Use |
+   | --- | --- |
+   | `--into-running` | Loads into the running database server. Each database of the file is replaced, and each other database stays. A snapshot of the database disk before the load is the rollback. Without the option, the import fills a new database server and switches to it. |
+   | `--database shop_9999` | The database that a file without database names loads into. Without the option, the main database of the app. |
+   | `--no-backup` | Loads without the backup before the load. Nothing undoes the import then. |
+   | `--freeze` | Stops the processes and shows the maintenance page while the data moves. |
+   | `-v APP_KEY=base64:…` | A variable of the imported data, such as the key that encrypts it. |
+
 ## Updates
 
 Each command starts `deployyy update` in the background, at most one time each day. `deployyy update` replaces the program with the newest [release](https://github.com/ho-nl/deployyy/releases) and refuses a download with a wrong SHA-256 checksum.
@@ -73,6 +101,6 @@ go test ./...
 go run . graphql '{ viewer { preferredLoginName } }'
 ```
 
-[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell` and `update` against a stub of the console, the sign-in service, the terminal service and the release server.
+[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell`, `files upload`, `database import` and `update` against a stub of the console, the sign-in service, the terminal service, the object store and the release server.
 
 A tag `v<version>` on `main` starts [`cli.yml`](../.github/workflows/cli.yml). The workflow publishes the programs for macOS and Linux with `SHA256SUMS` as a GitHub release. Each GitHub release of this repository is a release of the CLI: [`install.sh`](../install.sh) and `deployyy update` install the newest one.

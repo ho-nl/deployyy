@@ -90,6 +90,28 @@ the compile error.
 The recipes add no Varnish or GraphQL module to your project. A caching
 module, if you need one, goes in your `composer.json`.
 
+### nginx (Magento, Mage-OS, Laravel)
+
+1. Put a file in `.platform/nginx/` of your application, for example
+   `.platform/nginx/resize.conf` for a PHP script next to `index.php`:
+
+   ```nginx
+   location = /r.php {
+       fastcgi_pass fastcgi_backend;
+       fastcgi_param SCRIPT_FILENAME $document_root/r.php;
+       fastcgi_param HTTPS $fastcgi_https;
+       include fastcgi_params;
+       include /etc/nginx/deployyy/fastcgi*.conf;
+   }
+   ```
+
+2. Push. The build adds each `.platform/nginx/*.conf` at the top of the
+   `server` block of the recipe and runs `nginx -t`. A file that fails the
+   test fails the build.
+
+A regular expression location in your file comes before the locations of the
+recipe, so nginx matches it first.
+
 ## How the build works
 
 1. **Release line.** The build reads the release line from
@@ -382,5 +404,5 @@ replaces the recipe file with the same name.
   empty database.
 - **Web server**: nginx has the server block of the
   [Laravel deployment documentation](https://laravel.com/docs/deployment#nginx).
-  Only `public/index.php` runs. `robots.txt` and `favicon.ico` are a file in
-  `public/` or a route.
+  Only `public/index.php` and the scripts of `.platform/nginx/*.conf` run.
+  `robots.txt` and `favicon.ico` are a file in `public/` or a route.

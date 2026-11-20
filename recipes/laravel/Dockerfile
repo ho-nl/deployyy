@@ -114,4 +114,9 @@ FROM nginx:1.26-alpine AS nginx
 ARG PLATFORM_OS_UPDATES_DAY=""
 RUN apk upgrade --no-cache
 COPY .platform/nginx-default.conf /etc/nginx/conf.d/default.conf
+# The project's nginx files (.platform/nginx/*.conf), checked with the server block.
+RUN --mount=type=bind,source=.platform,target=/tmp/platform \
+    mkdir -p /etc/nginx/project.d \
+    && if ls /tmp/platform/nginx/*.conf >/dev/null 2>&1; then cp /tmp/platform/nginx/*.conf /etc/nginx/project.d/; fi \
+    && nginx -t
 COPY --from=php-fpm /var/www/html/public /var/www/html/public

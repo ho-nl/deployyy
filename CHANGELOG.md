@@ -4,6 +4,15 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.com](https://deployyy.com), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-11-20
+
+### Builds
+
+- **An app adds nginx locations in `.platform/nginx/*.conf`.** The build adds
+  each file to the server block of the Magento, Mage-OS or Laravel recipe and
+  checks it with `nginx -t`. A Laravel app runs a PHP script next to
+  `index.php` this way. Repository only.
+
 ## 2026-11-19
 
 ### CLI

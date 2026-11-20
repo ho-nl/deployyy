@@ -306,3 +306,60 @@ func TestUpdate(t *testing.T) {
 		t.Errorf("mode %v", mode.Mode())
 	}
 }
+
+func TestRefreshFollowsAMovedSignInService(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+	mux.HandleFunc("/.well-known/oauth-protected-resource/api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"authorization_servers": []string{server.URL + "/new"}})
+	})
+	mux.HandleFunc("/new/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"token_endpoint":        server.URL + "/new/token",
+			"revocation_endpoint":   server.URL + "/new/revoke",
+			"registration_endpoint": server.URL + "/new/register",
+		})
+	})
+	mux.HandleFunc("/new/token", func(w http.ResponseWriter, r *http.Request) {
+		if r.FormValue("refresh_token") != "refresh" {
+			t.Errorf("refresh token: %q", r.FormValue("refresh_token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"access_token":"fresh","token_type":"Bearer","refresh_token":"refresh2","expires_in":3600}`)
+	})
+	mux.HandleFunc("/api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer fresh" {
+			t.Errorf("authorization: %q", r.Header.Get("Authorization"))
+		}
+		io.WriteString(w, `{"data":{"viewer":{"id":"v"}}}`)
+	})
+	// The saved endpoints name a host that no longer answers.
+	file := filepath.Join(os.Getenv("HOME"), ".config", "deployyy", "accounts.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	saved := map[string]any{server.URL: map[string]any{
+		"client_id":               "client",
+		"registration_client_uri": "http://127.0.0.1:1/old/register/client",
+		"token_endpoint":          "http://127.0.0.1:1/old/token",
+		"revocation_endpoint":     "http://127.0.0.1:1/old/revoke",
+		"token":                   map[string]any{"access_token": "stale", "refresh_token": "refresh", "expiry": "2000-01-01T00:00:00Z"},
+	}}
+	body, _ := json.Marshal(saved)
+	if err := os.WriteFile(file, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := run(t, "", "graphql", "{ viewer { id } }"); err != nil {
+		t.Fatalf("graphql: %v", err)
+	}
+	stored, _ := os.ReadFile(file)
+	for _, want := range []string{server.URL + "/new/token", server.URL + "/new/revoke", strings.TrimPrefix(server.URL, "http://") + "/old/register/client", "refresh2"} {
+		if !strings.Contains(string(stored), want) {
+			t.Errorf("accounts.json lacks %s: %s", want, stored)
+		}
+	}
+}

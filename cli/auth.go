@@ -99,6 +99,31 @@ func getJSON(ctx context.Context, address string, result any) error {
 	return json.Unmarshal(body, result)
 }
 
+// The endpoints of the sign-in service of a console.
+type issuerEndpoints struct {
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	RegistrationEndpoint  string `json:"registration_endpoint"`
+	RevocationEndpoint    string `json:"revocation_endpoint"`
+}
+
+// RFC 9728: the console names the issuer and the scopes of its API.
+func discover(ctx context.Context, origin string) ([]string, issuerEndpoints, error) {
+	var resource struct {
+		AuthorizationServers []string `json:"authorization_servers"`
+		ScopesSupported      []string `json:"scopes_supported"`
+	}
+	var issuer issuerEndpoints
+	if err := getJSON(ctx, origin+"/.well-known/oauth-protected-resource/api/graphql", &resource); err != nil {
+		return nil, issuer, err
+	}
+	if len(resource.AuthorizationServers) != 1 {
+		return nil, issuer, fmt.Errorf("%s names no sign-in service", origin)
+	}
+	err := getJSON(ctx, strings.TrimRight(resource.AuthorizationServers[0], "/")+"/.well-known/openid-configuration", &issuer)
+	return resource.ScopesSupported, issuer, err
+}
+
 func loginCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
@@ -108,24 +133,8 @@ func loginCommand() *cobra.Command {
 			ctx := command.Context()
 			origin := apiOrigin()
 
-			// RFC 9728: the console names the issuer and the scopes of its API.
-			var resource struct {
-				AuthorizationServers []string `json:"authorization_servers"`
-				ScopesSupported      []string `json:"scopes_supported"`
-			}
-			if err := getJSON(ctx, origin+"/.well-known/oauth-protected-resource/api/graphql", &resource); err != nil {
-				return err
-			}
-			if len(resource.AuthorizationServers) != 1 {
-				return fmt.Errorf("%s names no sign-in service", origin)
-			}
-			var issuer struct {
-				AuthorizationEndpoint string `json:"authorization_endpoint"`
-				TokenEndpoint         string `json:"token_endpoint"`
-				RegistrationEndpoint  string `json:"registration_endpoint"`
-				RevocationEndpoint    string `json:"revocation_endpoint"`
-			}
-			if err := getJSON(ctx, strings.TrimRight(resource.AuthorizationServers[0], "/")+"/.well-known/openid-configuration", &issuer); err != nil {
+			scopes, issuer, err := discover(ctx, origin)
+			if err != nil {
 				return err
 			}
 
@@ -179,7 +188,7 @@ func loginCommand() *cobra.Command {
 				ClientID:    saved.ClientID,
 				Endpoint:    oauth2.Endpoint{AuthURL: issuer.AuthorizationEndpoint, TokenURL: issuer.TokenEndpoint, AuthStyle: oauth2.AuthStyleInParams},
 				RedirectURL: fmt.Sprintf("http://127.0.0.1:%d/callback", listener.Addr().(*net.TCPAddr).Port),
-				Scopes:      resource.ScopesSupported,
+				Scopes:      scopes,
 			}
 			state, verifier := rand.Text(), oauth2.GenerateVerifier()
 			type outcome struct {
@@ -289,8 +298,24 @@ func send(ctx context.Context, document string, variables map[string]any) (*http
 			if saved == nil || saved.Token == nil {
 				return fmt.Errorf("Not signed in at %s. Run: deployyy login", origin)
 			}
-			client := oauth2.Config{ClientID: saved.ClientID, Endpoint: oauth2.Endpoint{TokenURL: saved.TokenURL, AuthStyle: oauth2.AuthStyleInParams}}
-			fresh, err := client.TokenSource(ctx, saved.Token).Token()
+			refresh := func() (*oauth2.Token, error) {
+				client := oauth2.Config{ClientID: saved.ClientID, Endpoint: oauth2.Endpoint{TokenURL: saved.TokenURL, AuthStyle: oauth2.AuthStyleInParams}}
+				return client.TokenSource(ctx, saved.Token).Token()
+			}
+			fresh, err := refresh()
+			// The sign-in service can move to another host of the same instance: the endpoints of the console replace the saved ones.
+			if refused := new(oauth2.RetrieveError); err != nil && !errors.As(err, &refused) {
+				if _, issuer, found := discover(ctx, origin); found == nil && issuer.TokenEndpoint != "" && issuer.TokenEndpoint != saved.TokenURL {
+					saved.TokenURL, saved.RevocationURL = issuer.TokenEndpoint, issuer.RevocationEndpoint
+					if moved, parsed := url.Parse(issuer.RegistrationEndpoint); parsed == nil {
+						if registration, parsed := url.Parse(saved.RegistrationURI); parsed == nil {
+							registration.Scheme, registration.Host = moved.Scheme, moved.Host
+							saved.RegistrationURI = registration.String()
+						}
+					}
+					fresh, err = refresh()
+				}
+			}
 			if refused := new(oauth2.RetrieveError); errors.As(err, &refused) {
 				return fmt.Errorf("The sign-in at %s ended. Run: deployyy login", origin)
 			}

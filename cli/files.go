@@ -10,11 +10,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -38,72 +39,245 @@ var (
 
 func filesCommand() *cobra.Command {
 	files := &cobra.Command{Use: "files", Short: "Files of a project"}
-	var project, folder string
-	upload := &cobra.Command{
-		Use:   "upload <file>",
-		Short: "Upload a file to the Files area of a project",
-		Long:  "Uploads a file to the Files area of a project in parts. An upload of the same file to the same path resumes the parts that are not stored. The CLI prints the progress on standard error and the ID of the stored file on standard output.",
-		Example: `  deployyy files upload backup.sql.gz --project acme/shop --path imports
-  nohup deployyy files upload backup.sql.gz --project acme/shop > upload.log 2>&1 &`,
-		Args: cobra.ExactArgs(1),
+	var folder string
+	var upload transferOptions
+	uploadCommand := &cobra.Command{
+		Use:   "upload <source> [<location>:<path>]",
+		Short: "Copy files to a location of a project, or upload a file to the Files area",
+		Long: `Copies a local file or folder to a location of a project, such as images:storage/app/beeld. A second run copies only new and changed files.
+With --from, the copy runs on a server that you reach over SSH. With --prepare, the CLI prints the commands for a server without the CLI.
+With one argument and --path, the CLI uploads one file to the Files area in parts and prints the ID of the stored file.`,
+		Example: `  deployyy files upload ./beeld images:storage/app/beeld --project acme/shop
+  deployyy files upload --from deploy@shop.example.com:/var/www/storage/app/beeld images:storage/app/beeld --project acme/shop
+  deployyy files upload --prepare /var/www/storage/app/beeld images:storage/app/beeld --project acme/shop
+  deployyy files upload backup.sql.gz --project acme/shop --path imports`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(command *cobra.Command, args []string) error {
 			ctx := command.Context()
-			projectID, err := projectID(ctx, project)
-			if err != nil {
-				return err
+			target, source := args[len(args)-1], ""
+			if len(args) == 2 {
+				source = args[0]
 			}
-			id, err := uploadFile(ctx, projectID, args[0], path.Join(folder, filepath.Base(args[0])))
-			if err != nil {
-				return err
+			location, path, ok := locationPath(target)
+			if !ok {
+				if len(args) != 1 || upload.from != "" || upload.prepare {
+					return errors.New("Name the target as <location>:<path>. deployyy files ls lists the locations")
+				}
+				projectID, err := projectID(ctx, upload.project)
+				if err != nil {
+					return err
+				}
+				id, err := uploadFile(ctx, projectID, args[0], pathpkg.Join(folder, filepath.Base(args[0])))
+				if err != nil {
+					return err
+				}
+				fmt.Println(id)
+				return nil
 			}
-			fmt.Println(id)
-			return nil
+			verb := "copy"
+			if upload.mirror {
+				verb = "sync"
+			}
+			switch {
+			case upload.from != "" && source != "":
+				return errors.New("Name the source once: as an argument or with --from")
+			case upload.from != "":
+				server, remotePath, found := strings.Cut(upload.from, ":")
+				if !found || remotePath == "" {
+					return errors.New("Name the source as --from <user>@<host>:<path>")
+				}
+				return runTransfer(ctx, upload.project, location, "WRITE", func(c transferConnection, read func(io.Reader) copyReport) error {
+					return runRemote(ctx, server, c, read, append([]string{verb, remotePath, c.remote(path)}, copyFlags(upload.transfers, upload.checkers)...)...)
+				})
+			case source == "":
+				return errors.New("Name the source: a local path, --from <user>@<host>:<path>, or a path with --prepare")
+			case upload.prepare:
+				projectID, err := projectID(ctx, upload.project)
+				if err != nil {
+					return err
+				}
+				_, connection, err := startTransfer(ctx, projectID, location, "WRITE")
+				if err != nil {
+					return err
+				}
+				printPrepared(connection, []string{verb, source, connection.remote(path), "--transfers", fmt.Sprint(upload.transfers), "--checkers", fmt.Sprint(upload.checkers),
+					"--s3-chunk-size", "16M", "--exclude", "lost+found/**", "--progress"})
+				return nil
+			}
+			return runTransfer(ctx, upload.project, location, "WRITE", func(c transferConnection, read func(io.Reader) copyReport) error {
+				return runLocal(ctx, c, read, append([]string{verb, source, c.remote(path)}, copyFlags(upload.transfers, upload.checkers)...)...)
+			})
 		},
 	}
-	upload.Flags().StringVar(&project, "project", "", "the project as <team>/<project>")
-	upload.Flags().StringVar(&folder, "path", "", "the folder in the Files area")
-	_ = upload.MarkFlagRequired("project")
-	files.AddCommand(upload)
+	upload.flags(uploadCommand)
+	uploadCommand.Flags().StringVar(&folder, "path", "", "the folder in the Files area")
+	uploadCommand.Flags().StringVar(&upload.from, "from", "", "copy from <user>@<host>:<path> over your own SSH")
+	uploadCommand.Flags().BoolVar(&upload.prepare, "prepare", false, "print the commands for a server without the CLI")
+
+	var download transferOptions
+	downloadCommand := &cobra.Command{
+		Use:     "download <location>:<path> <target>",
+		Short:   "Copy files from a location of a project",
+		Long:    "Copies a folder or a file of a location of a project to a local folder. A second run copies only new and changed files.",
+		Example: `  deployyy files download images:storage/app/beeld ./beeld --project acme/shop`,
+		Args:    cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			location, path, ok := locationPath(args[0])
+			if !ok {
+				return errors.New("Name the source as <location>:<path>. deployyy files ls lists the locations")
+			}
+			verb := "copy"
+			if download.mirror {
+				verb = "sync"
+			}
+			ctx := command.Context()
+			return runTransfer(ctx, download.project, location, "READ", func(c transferConnection, read func(io.Reader) copyReport) error {
+				return runLocal(ctx, c, read, append([]string{verb, c.remote(path), args[1]}, copyFlags(download.transfers, download.checkers)...)...)
+			})
+		},
+	}
+	download.flags(downloadCommand)
+
+	var lsProject string
+	lsCommand := &cobra.Command{
+		Use:   "ls [<location>[:<path>]]",
+		Short: "List the locations of a project, or the folders and files of a location",
+		Example: `  deployyy files ls --project acme/shop
+  deployyy files ls images:storage/app --project acme/shop`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return listLocations(command.Context(), lsProject)
+			}
+			location, path, ok := locationPath(args[0])
+			if !ok {
+				location, path = args[0], ""
+			}
+			return listEntries(command.Context(), lsProject, location, path)
+		},
+	}
+	lsCommand.Flags().StringVar(&lsProject, "project", "", "the project as <team>/<project>")
+	_ = lsCommand.MarkFlagRequired("project")
+	files.AddCommand(lsCommand, uploadCommand, downloadCommand)
 	return files
 }
 
-// Returns the ID of the project <team>/<project>.
-func projectID(ctx context.Context, name string) (string, error) {
+// projectQuery runs a query of one project <team>/<project>, with the fields of fields in the project.
+func projectQuery[Project any](ctx context.Context, name, variables, fields string, values map[string]any) (Project, error) {
+	var zero Project
 	scope := strings.SplitN(name, "/", 2)
 	if len(scope) != 2 {
-		return "", errors.New("Name the project as <team>/<project>")
+		return zero, errors.New("Name the project as <team>/<project>")
 	}
+	values["team"], values["project"] = scope[0], scope[1]
 	found, err := query[struct {
 		Viewer *struct {
 			Teams struct {
-				Nodes []struct {
-					Projects struct{ Nodes []struct{ ID string } }
-				}
+				Nodes []struct{ Projects struct{ Nodes []Project } }
 			}
 		}
-	}](ctx, `query ($team: String!, $project: String!) {
+	}](ctx, `query ($team: String!, $project: String!`+variables+`) {
   viewer {
     teams(filter: { slug: $team }) {
       nodes {
         projects(filter: { slug: $project, state: ACTIVE }, first: 1, includeShared: true) {
           nodes {
-            id
+            `+fields+`
           }
         }
       }
     }
   }
-}`, map[string]any{"team": scope[0], "project": scope[1]})
+}`, values)
 	if err != nil {
-		return "", err
+		return zero, err
 	}
 	if found.Viewer == nil {
-		return "", fmt.Errorf("Not signed in at %s. Run: deployyy login", apiOrigin())
+		return zero, fmt.Errorf("Not signed in at %s. Run: deployyy login", apiOrigin())
 	}
-	if len(found.Viewer.Teams.Nodes) == 0 || len(found.Viewer.Teams.Nodes[0].Projects.Nodes) == 0 {
-		return "", fmt.Errorf("No project %s", name)
+	if len(found.Viewer.Teams.Nodes) != 1 || len(found.Viewer.Teams.Nodes[0].Projects.Nodes) != 1 {
+		return zero, fmt.Errorf("No project %s", name)
 	}
-	return found.Viewer.Teams.Nodes[0].Projects.Nodes[0].ID, nil
+	return found.Viewer.Teams.Nodes[0].Projects.Nodes[0], nil
+}
+
+func listLocations(ctx context.Context, project string) error {
+	found, err := projectQuery[struct {
+		FileLocations []struct {
+			Name, Kind  string
+			Environment *struct{ Branch string }
+			Folders     []string
+		}
+	}](ctx, project, "", `fileLocations {
+              name
+              kind
+              environment {
+                branch
+              }
+              folders
+            }`, map[string]any{})
+	if err != nil {
+		return err
+	}
+	if len(found.FileLocations) == 0 {
+		fmt.Fprintf(os.Stderr, "The project %s has no locations\n", project)
+	}
+	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, l := range found.FileLocations {
+		place := "project"
+		if l.Environment != nil {
+			place = l.Environment.Branch
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", l.Name, strings.ToLower(strings.ReplaceAll(l.Kind, "_", " ")), place, strings.Join(l.Folders, ", "))
+	}
+	return out.Flush()
+}
+
+func listEntries(ctx context.Context, project, location, path string) error {
+	found, err := projectQuery[struct {
+		FileLocations []struct {
+			Entries []struct {
+				Name       string
+				Folder     bool
+				Size       *int64
+				ModifiedAt *time.Time
+			}
+		}
+	}](ctx, project, ", $location: String!, $path: String", `fileLocations(name: $location) {
+              entries(path: $path) {
+                name
+                folder
+                size
+                modifiedAt
+              }
+            }`, map[string]any{"location": location, "path": path})
+	if err != nil {
+		return err
+	}
+	if len(found.FileLocations) != 1 {
+		return fmt.Errorf("The project %s has no location %s. deployyy files ls lists the locations", project, location)
+	}
+	out := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, e := range found.FileLocations[0].Entries {
+		size, modified, name := "", "", e.Name
+		if e.Folder {
+			name += "/"
+		}
+		if e.Size != nil {
+			size = humanSize(*e.Size)
+		}
+		if e.ModifiedAt != nil {
+			modified = e.ModifiedAt.UTC().Format("2006-01-02 15:04")
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\n", size, modified, name)
+	}
+	return out.Flush()
+}
+
+// Returns the ID of the project <team>/<project>.
+func projectID(ctx context.Context, name string) (string, error) {
+	found, err := projectQuery[struct{ ID string }](ctx, name, "", "id", map[string]any{})
+	return found.ID, err
 }
 
 // The state of an upload, as the API reports it.

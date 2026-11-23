@@ -387,7 +387,8 @@ func sshOptions(control string) []string {
 
 // runRemote places rclone and the keys of connection in a temporary folder on the server of the person, runs the copy there and removes the folder.
 func runRemote(ctx context.Context, server string, connection transferConnection, read func(io.Reader) copyReport, arguments ...string) error {
-	control, err := os.MkdirTemp("", "deployyy-ssh-")
+	// macOS limits a socket path to 104 bytes, and its TMPDIR takes 49 of them.
+	control, err := os.MkdirTemp("/tmp", "deployyy-")
 	if err != nil {
 		return err
 	}

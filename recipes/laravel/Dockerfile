@@ -101,8 +101,12 @@ RUN mv /usr/bin/php /usr/bin/php-image \
 USER docker
 # The links of `links` in config/filesystems.php, such as public/storage. A
 # link names its target by the path of this image, and the nginx image has
-# the app at the same path.
-RUN php artisan storage:link --force
+# the app at the same path. The step reads the build variables, such as
+# DEPLOYYY=1, with the single-line assignments of the secret build-env.
+RUN --mount=type=secret,id=build-env,required=false,mode=0444 \
+    if [ -f /run/secrets/build-env ]; then set -a; \
+      eval "$(sed -nE "\#^[A-Za-z_][A-Za-z0-9_]*=('[^']*'|[A-Za-z0-9_@%+=:,./-]*)\$#p" /run/secrets/build-env)"; set +a; fi; \
+    php artisan storage:link --force
 ENTRYPOINT ["/usr/local/bin/deployyy-php-env", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["php-fpm"]
 

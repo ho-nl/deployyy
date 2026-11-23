@@ -52,7 +52,26 @@
 
    The CLI refuses a script on a production environment: a shell on production needs a typed confirmation.
 
-6. Upload a file to the Files area of a project, named as `<team>/<project>`:
+6. Copy files to a location of a project, named as `<team>/<project>`. A location is a file store or a media bucket, such as `images` or `media@main`:
+
+   ```bash
+   deployyy files ls --project acme/shop
+   deployyy files ls images:storage/app --project acme/shop
+   deployyy files upload ./beeld images:storage/app/beeld --project acme/shop
+   deployyy files download images:storage/app/beeld ./beeld --project acme/shop
+   ```
+
+   The CLI starts a transfer, a Change of the project, and copies with [rclone](https://rclone.org) `v1.75.2`, which it installs in its cache after a check of the SHA-256 of the release. rclone copies 16 files at a time and retries a failed file. A second run copies only new and changed files, by size and change time. The CLI ends the transfer after the copy, also after Ctrl-C. The keys of a transfer expire after one day.
+
+   | Option | Use |
+   | --- | --- |
+   | `--from deploy@shop.example.com:/var/www/storage/app/beeld` | Copies from a server over your own SSH. The CLI places rclone and the keys of the transfer in a temporary folder on the server, runs the copy there, and removes the folder. The server needs no CLI. |
+   | `--prepare` | Prints the commands for a server that you reach in another way. The first argument is the path on that server. |
+   | `--delete` | Deletes each file at the target that the source lacks. |
+   | `--transfers 16` | The files that rclone copies at the same time. |
+   | `--checkers 32` | The files that rclone compares at the same time. |
+
+   Upload a file to the Files area of a project:
 
    ```bash
    deployyy files upload backup.sql.gz --project acme/shop --path imports
@@ -101,6 +120,6 @@ go test ./...
 go run . graphql '{ viewer { preferredLoginName } }'
 ```
 
-[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell`, `files upload`, `database import` and `update` against a stub of the console, the sign-in service, the terminal service, the object store and the release server.
+[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell`, `files upload`, `database import` and `update` against a stub of the console, the sign-in service, the terminal service, the object store, the release server and the rclone downloads.
 
 A tag `v<version>` on `main` starts [`cli.yml`](../.github/workflows/cli.yml). The workflow publishes the programs for macOS and Linux with `SHA256SUMS` as a GitHub release. Each GitHub release of this repository is a release of the CLI: [`install.sh`](../install.sh) and `deployyy update` install the newest one.

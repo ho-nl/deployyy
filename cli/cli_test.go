@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -541,6 +543,148 @@ func TestRefreshFollowsAMovedSignInService(t *testing.T) {
 	for _, want := range []string{server.URL + "/new/token", server.URL + "/new/revoke", strings.TrimPrefix(server.URL, "http://") + "/old/register/client", "refresh2"} {
 		if !strings.Contains(string(stored), want) {
 			t.Errorf("accounts.json lacks %s: %s", want, stored)
+		}
+	}
+}
+
+// fakeRclone serves a release archive of rclone for each platform: a script that writes its arguments and the endpoint of its remote, and logs the stats of a copy of 2 files with 1 failed file.
+func fakeRclone(t *testing.T, mux *http.ServeMux, record string) {
+	t.Helper()
+	script := `#!/bin/sh
+printf '%s\n' "$@" > ` + record + `
+echo "$RCLONE_CONFIG_DEPLOYYY_ENDPOINT $RCLONE_CONFIG_DEPLOYYY_ACCESS_KEY_ID" >> ` + record + `
+echo '{"level":"error","msg":"Failed to copy: denied","object":"b/broken.jpg"}' >&2
+echo '{"level":"notice","msg":"stats","stats":{"bytes":2048,"totalBytes":4096,"transfers":2,"totalTransfers":3,"errors":1,"speed":1024,"eta":2}}' >&2
+exit 1
+`
+	for platform := range rcloneSums {
+		var archive bytes.Buffer
+		files := zip.NewWriter(&archive)
+		entry, _ := files.CreateHeader(&zip.FileHeader{Name: "rclone-" + rcloneVersion + "-" + platform + "/rclone"})
+		io.WriteString(entry, script)
+		files.Close()
+		sum := sha256.Sum256(archive.Bytes())
+		rcloneSums[platform] = hex.EncodeToString(sum[:])
+		body := archive.Bytes()
+		mux.HandleFunc("GET /rclone/"+rcloneVersion+"/rclone-"+rcloneVersion+"-"+platform+".zip", func(w http.ResponseWriter, r *http.Request) { w.Write(body) })
+	}
+}
+
+// transferAPI stubs the API of a transfer and the downloads of rclone. It returns the file of the arguments of rclone, the start and the updates.
+func transferAPI(t *testing.T) (string, *map[string]any, *[]map[string]any) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	pollEvery = time.Millisecond
+	sums := maps.Clone(rcloneSums)
+	t.Cleanup(func() { rcloneSums = sums })
+	record := filepath.Join(t.TempDir(), "rclone.args")
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	t.Setenv("DEPLOYYY_API", server.URL)
+	rcloneDownloads = server.URL + "/rclone"
+	fakeRclone(t, mux, record)
+	var started map[string]any
+	var updates []map[string]any
+	connects := 0
+	mux.HandleFunc("POST /api/graphql", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		reply := func(data any) { json.NewEncoder(w).Encode(map[string]any{"data": data}) }
+		transfer := map[string]any{"id": "transfer-1", "status": map[string]any{"phase": "PENDING"}}
+		switch {
+		case strings.Contains(request.Query, "projects(filter"):
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"id":"project-1"}]}}]}}}}`)
+		case strings.Contains(request.Query, "fileTransferStart"):
+			started = request.Variables["input"].(map[string]any)
+			reply(map[string]any{"fileTransferStart": map[string]any{"transfer": transfer}})
+		case strings.Contains(request.Query, "fileTransferConnect"):
+			connects++
+			payload := map[string]any{"transfer": transfer}
+			if connects > 1 {
+				payload["connection"] = map[string]any{"endpoint": "https://t--transfer.acme.deployyy.app", "bucket": "data",
+					"accessKeyId": "AKIAAAAAAAAAAAAAAAAA", "secretAccessKey": "secret", "expiresAt": "2026-11-24T10:00:00Z"}
+			}
+			reply(map[string]any{"fileTransferConnect": payload})
+		case strings.Contains(request.Query, "fileTransferUpdate"):
+			updates = append(updates, request.Variables["input"].(map[string]any))
+			reply(map[string]any{"fileTransferUpdate": map[string]any{"transfer": transfer}})
+		default:
+			t.Errorf("unexpected query %s", request.Query)
+		}
+	})
+	return record, &started, &updates
+}
+
+// An upload of a folder to a location starts a transfer, runs rclone on its endpoint, reports the failed file and ends the transfer.
+func TestFilesUploadCopiesThroughATransfer(t *testing.T) {
+	record, started, updates := transferAPI(t)
+	source := t.TempDir()
+	_, err := run(t, "", "files", "upload", source, "images:storage/app/beeld/", "--project", "acme/shop", "--transfers", "8")
+	if err == nil || err.Error() != "1 file failed. Run the same command again to copy them" {
+		t.Fatalf("upload: %v", err)
+	}
+	if (*started)["projectId"] != "project-1" || (*started)["location"] != "images" || (*started)["access"] != "WRITE" {
+		t.Errorf("start: %v", *started)
+	}
+	args, _ := os.ReadFile(record)
+	lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if lines[0] != "copy" || lines[1] != source || lines[2] != "deployyy:data/storage/app/beeld" || !slices.Contains(lines, "8") {
+		t.Errorf("rclone ran with %q", lines)
+	}
+	if lines[len(lines)-1] != "https://t--transfer.acme.deployyy.app AKIAAAAAAAAAAAAAAAAA" {
+		t.Errorf("the remote is the endpoint of the transfer: %q", lines[len(lines)-1])
+	}
+	last := (*updates)[len(*updates)-1]
+	report, _ := last["report"].(map[string]any)
+	if last["end"] != true || report["failedFiles"] != float64(1) || report["bytes"] != float64(2048) || fmt.Sprint(report["failed"]) != "[b/broken.jpg]" {
+		t.Errorf("the transfer ends with the report: %v", last)
+	}
+}
+
+// --from runs rclone on the server of the person with the keys in a temporary folder, and removes the folder.
+func TestFilesUploadFromAServer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+	record, _, updates := transferAPI(t)
+	// ssh runs the command of the server on this machine.
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "ssh"), []byte("#!/bin/sh\nwhile [ \"$1\" = \"-o\" ]; do shift 2; done\nshift\nexec sh -c \"$1\"\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TMPDIR", t.TempDir())
+	_, err := run(t, "", "files", "upload", "--from", "deploy@shop.example.com:/data/beeld", "images:storage/app/beeld", "--project", "acme/shop", "--delete")
+	if err == nil || !strings.Contains(err.Error(), "1 file failed") {
+		t.Fatalf("upload: %v", err)
+	}
+	args, _ := os.ReadFile(record)
+	lines := strings.Split(strings.TrimSpace(string(args)), "\n")
+	if lines[0] != "--config" || !strings.HasSuffix(lines[1], "/rclone.conf") || lines[2] != "sync" || lines[3] != "/data/beeld" {
+		t.Errorf("rclone ran on the server with %q", lines)
+	}
+	if entries, _ := os.ReadDir(os.Getenv("TMPDIR")); len(entries) != 0 {
+		t.Errorf("the folder of rclone and the keys stays on the server: %v", entries)
+	}
+	if last := (*updates)[len(*updates)-1]; last["end"] != true {
+		t.Errorf("the transfer ends: %v", last)
+	}
+}
+
+func TestLocationPath(t *testing.T) {
+	for argument, want := range map[string]string{
+		"images:storage/app/beeld/": "images storage/app/beeld true",
+		"files@rc:":                 "files@rc  true",
+		"./beeld":                   "  false",
+		"/var/www/a:b":              "  false",
+	} {
+		location, folder, ok := locationPath(argument)
+		if got := fmt.Sprint(location, " ", folder, " ", ok); got != want {
+			t.Errorf("%s: %q, want %q", argument, got, want)
 		}
 	}
 }

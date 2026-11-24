@@ -216,18 +216,9 @@ RUN rm -f /home/docker/.bash_profile
 RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Mailpit sendmail drop-in. PHP's mail() pipes to /usr/sbin/sendmail, which does not
-# exist in this image — so Magento mail failed SILENTLY (no error, no message, nothing
-# in Mailpit; the admin forgot-password POST still returned its normal 302). Point
-# sendmail_path at the sendmail-tagged shim, which relays over SMTP to
-# MP_SENDMAIL_SMTP_ADDR (a platform variable) via the mailpit binary, and prepends an
-# X-Tags header with DEPLOYYY_BRANCH_URL so the project's shared Mailpit tags each message
-# with its environment (see the shim's header).
-#
-# The ini paths are PHP-VERSION-SPECIFIC (/etc/php/<version>/{fpm,cli}/conf.d/), so they
-# are templated from $PHP_VERSION, the same version the base images use — hardcoding one
-# version onto another image silently re-breaks mail (the drop-in lands in a directory
-# no PHP reads). Both fpm AND cli: cron/consumers send mail from the CLI SAPI.
+# PHP mail() pipes to sendmail-tagged: the setting `sendmail_path` in
+# zz-mailpit-sendmail.ini of fpm and cli. sendmail-tagged relays over SMTP to
+# MP_SENDMAIL_SMTP_ADDR, the mail service that the platform sets below production.
 ENV MAILPIT_VERSION=v1.30.6 \
     MAILPIT_SHA256=00f7570bf47c9683944f6189379ce4b7d4974b1c9cd911f93c55d4ad945bf3d2
 COPY .platform/sendmail-tagged /usr/local/bin/sendmail-tagged

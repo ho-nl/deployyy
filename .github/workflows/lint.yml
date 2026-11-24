@@ -30,9 +30,11 @@ jobs:
           for f in recipes/*/platform/*.mjs; do node --check "$f"; done
 
       # recipes/magento started from recipes/mageos-3. These support files must
-      # stay the same in both; a fix to one belongs in the other.
+      # stay the same in both; a fix to one belongs in the other. Each PHP recipe
+      # holds the same sendmail-tagged.
       - name: Shared Magento support files have not drifted
         run: |
           for f in nginx-default.conf sendmail-tagged check-patches.php config-check-off.php; do
             diff -u "recipes/mageos-3/platform/$f" "recipes/magento/platform/$f"
           done
+          diff -u recipes/magento/platform/sendmail-tagged recipes/laravel/platform/sendmail-tagged

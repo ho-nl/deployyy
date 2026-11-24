@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -137,16 +136,8 @@ func shellCommand() *cobra.Command {
 				return errors.New(environment.Actions.ShellCreate.Message)
 			}
 
-			production := environment.Level == "PROD"
-			if production {
-				if !interactive {
-					return errors.New("A shell on production needs a confirmation in a terminal")
-				}
-				fmt.Fprintf(os.Stderr, "%s is production. Type yes to open the shell: ", args[0])
-				answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-				if strings.TrimSpace(answer) != "yes" {
-					return errors.New("No shell opened")
-				}
+			if interactive && environment.Level == "PROD" {
+				fmt.Fprintf(os.Stderr, "%s is production.\n", args[0])
 			}
 
 			created, err := query[struct {
@@ -156,10 +147,9 @@ func shellCommand() *cobra.Command {
     changeId
   }
 }`, map[string]any{"input": map[string]any{
-				"environmentId":     environment.ID,
-				"idempotencyKey":    rand.Text(),
-				"shell":             shellInput(instance),
-				"confirmProduction": production,
+				"environmentId":  environment.ID,
+				"idempotencyKey": rand.Text(),
+				"shell":          shellInput(instance),
 			}})
 			if err != nil {
 				return err

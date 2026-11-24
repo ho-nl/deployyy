@@ -266,8 +266,9 @@ func shellCommand() *cobra.Command {
 
 			if !interactive {
 				// The typed lines turn the echo off and run the script in one eval. The output between the two markers is the output of the script alone.
+				// PAGER=cat: psql, git and systemctl print to the script instead of a pager that waits for a key.
 				marker := "__deployyy_" + rand.Text() + "_"
-				typed := " stty -echo\n __deployyy=\n"
+				typed := " stty -echo\n export PAGER=cat\n __deployyy=\n"
 				for encoded := base64.StdEncoding.EncodeToString(script); encoded != ""; {
 					chunk := min(len(encoded), 512)
 					typed += " __deployyy=${__deployyy}" + encoded[:chunk] + "\n"

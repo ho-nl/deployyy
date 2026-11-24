@@ -16,7 +16,9 @@ for f in recipes/*/platform/*.mjs; do node --check "$f"; done
 `.github/workflows/lint.yml` runs the same checks and fails when a shared
 Magento support file differs between `recipes/mageos-3/platform/` and
 `recipes/magento/platform/` (`nginx-default.conf`, `sendmail-tagged`,
-`check-patches.php`, `config-check-off.php`). Change both copies.
+`check-patches.php`, `config-check-off.php`), or when
+`recipes/laravel/platform/sendmail-tagged` differs from the Magento copy. Change
+each copy.
 
 A recipe change reaches an app through a recipe version that pins its commit
 (`build.commit` in kubernetes-cluster `platform/deployyy/catalog/recipes.yaml`).

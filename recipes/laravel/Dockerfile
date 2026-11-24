@@ -81,6 +81,21 @@ ENV PHP_EXTENSION_GD=1 PHP_EXTENSION_INTL=1 PHP_EXTENSION_BCMATH=1 \
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+# PHP mail() pipes to sendmail-tagged: the setting `sendmail_path` in
+# zz-mailpit-sendmail.ini of fpm and cli. sendmail-tagged relays over SMTP to
+# MP_SENDMAIL_SMTP_ADDR, the mail service that the platform sets below production.
+ENV MAILPIT_VERSION=v1.30.6 \
+    MAILPIT_SHA256=00f7570bf47c9683944f6189379ce4b7d4974b1c9cd911f93c55d4ad945bf3d2
+COPY .platform/sendmail-tagged /usr/local/bin/sendmail-tagged
+RUN curl -fsSL "https://github.com/axllent/mailpit/releases/download/${MAILPIT_VERSION}/mailpit-linux-amd64.tar.gz" \
+        -o /tmp/mailpit.tar.gz \
+    && echo "${MAILPIT_SHA256}  /tmp/mailpit.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/mailpit.tar.gz -C /usr/local/bin mailpit \
+    && chmod +x /usr/local/bin/mailpit /usr/local/bin/sendmail-tagged \
+    && rm /tmp/mailpit.tar.gz \
+    && printf 'sendmail_path = /usr/local/bin/sendmail-tagged -t\n' \
+        | tee "/etc/php/${PHP_VERSION}/fpm/conf.d/zz-mailpit-sendmail.ini" \
+              "/etc/php/${PHP_VERSION}/cli/conf.d/zz-mailpit-sendmail.ini" > /dev/null
 USER docker
 COPY --from=builder --chown=docker:docker /tmp/app /var/www/html
 WORKDIR /var/www/html

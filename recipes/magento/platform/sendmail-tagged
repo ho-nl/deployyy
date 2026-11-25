@@ -1,15 +1,15 @@
 #!/bin/sh
-# sendmail_path shim: relay PHP mail to Mailpit over SMTP (target: MP_SENDMAIL_SMTP_ADDR).
+# sendmail_path of PHP: relays mail() to the mail catcher of the platform over SMTP.
 #
-# With MP_SENDMAIL_SMTP_ADDR set (an environment with the project's Mailpit), an `X-Tags`
-# header with DEPLOYYY_BRANCH_URL is prepended so the project's SHARED Mailpit tags every
-# message with the environment it came from (filter with tag:<branch host> in the UI).
-# Mailpit tags on X-Tags by default; header order is free per RFC 5322, so prepending is
-# safe: stdin here is a plain header+body message from PHP mail(), never an SMTP
-# conversation.
+# Below production the platform sets MAILCATCHER_SMTP_HOST and MAILCATCHER_SMTP_PORT.
+# The relay prepends an `X-Tags` header with DEPLOYYY_BRANCH_URL, so the mail catcher
+# tags each message with its environment. stdin is a plain message from mail(), so the
+# order of the headers is free (RFC 5322).
 #
-# Without MP_SENDMAIL_SMTP_ADDR this is a transparent pass-through, so the tag header
-# never leaks into mail from tiers that send real mail.
+# Production has no mail catcher: the relay passes the message through without the tag.
+if [ -n "$MAILCATCHER_SMTP_HOST" ] && [ -n "$MAILCATCHER_SMTP_PORT" ]; then
+  export MP_SENDMAIL_SMTP_ADDR="$MAILCATCHER_SMTP_HOST:$MAILCATCHER_SMTP_PORT"
+fi
 if [ -n "$MP_SENDMAIL_SMTP_ADDR" ] && [ -n "$DEPLOYYY_BRANCH_URL" ]; then
   { printf 'X-Tags: %s\n' "$DEPLOYYY_BRANCH_URL"; cat; } | /usr/local/bin/mailpit sendmail "$@"
 else

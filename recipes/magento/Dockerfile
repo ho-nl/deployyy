@@ -303,7 +303,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends default-mysql-c
 
 # PHP mail() pipes to sendmail-tagged: the setting `sendmail_path` in
 # zz-mailpit-sendmail.ini of fpm and cli. sendmail-tagged relays over SMTP to
-# MP_SENDMAIL_SMTP_ADDR, the mail service that the platform sets below production.
+# MAILCATCHER_SMTP_HOST and MAILCATCHER_SMTP_PORT, the mail catcher that the
+# platform sets below production.
 ENV MAILPIT_VERSION=v1.30.6 \
     MAILPIT_SHA256=00f7570bf47c9683944f6189379ce4b7d4974b1c9cd911f93c55d4ad945bf3d2
 COPY .platform/sendmail-tagged /usr/local/bin/sendmail-tagged

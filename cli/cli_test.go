@@ -210,7 +210,7 @@ func TestShellRunsAScript(t *testing.T) {
 			if got, _ := json.Marshal(request.Variables); string(got) != `{"app":"magento","branch":"feature/cart","project":"shop","shell":null,"team":"acme"}` {
 				t.Errorf("scope: %s", got)
 			}
-			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"STAGING","actions":{"shellCreate":{"allowed":true}}}]}}]}}]}}]}}}}`)
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"id":"project-1","apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"STAGING","actions":{"shellCreate":{"allowed":true}}}]}}]}}]}}]}}}}`)
 		case strings.Contains(request.Query, "environmentShellCreate"):
 			io.WriteString(w, `{"data":{"environmentShellCreate":{"changeId":"change-1"}}}`)
 		case strings.Contains(request.Query, "node(id"):
@@ -443,7 +443,7 @@ func TestDatabaseImportIntoTheRunningDatabase(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&request)
 		switch {
 		case strings.Contains(request.Query, "environments(filter"):
-			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"PREVIEW","ownerProject":{"id":"project-1"},"status":{"services":[{"kind":"CACHE","engine":"redis-7"},{"kind":"DATABASE","engine":"percona-8.0.36"}]}}]}}]}}]}}]}}}}`)
+			io.WriteString(w, `{"data":{"viewer":{"teams":{"nodes":[{"projects":{"nodes":[{"id":"project-1","apps":{"nodes":[{"environments":{"nodes":[{"id":"environment-1","level":"PREVIEW","status":{"services":[{"kind":"CACHE","engine":"redis-7"},{"kind":"DATABASE","engine":"percona-8.0.36"}]}}]}}]}}]}}]}}}}`)
 		case strings.Contains(request.Query, "projectFileUploadStart"):
 			if name := request.Variables["input"].(map[string]any)["fileName"]; name != "imports/shop_9999.sql.gz" {
 				t.Errorf("file name %v", name)

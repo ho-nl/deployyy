@@ -50,10 +50,10 @@ With --into-running, the import loads into the running database server: each dat
 			}
 			fileID := ""
 			if info, err := os.Stat(args[0]); err == nil && info.Mode().IsRegular() {
-				if fileID, err = uploadFile(ctx, target.OwnerProject.ID, args[0], path.Join("imports", filepath.Base(args[0]))); err != nil {
+				if fileID, err = uploadFile(ctx, target.ProjectID, args[0], path.Join("imports", filepath.Base(args[0]))); err != nil {
 					return err
 				}
-			} else if fileID, err = storedFile(ctx, target.OwnerProject.ID, args[0]); err != nil {
+			} else if fileID, err = storedFile(ctx, target.ProjectID, args[0]); err != nil {
 				return err
 			}
 
@@ -165,10 +165,10 @@ With --into-running, the import loads into the running database server: each dat
 
 // An environment, as an import reads it.
 type importTarget struct {
-	ID           string
-	Level        string
-	OwnerProject struct{ ID string }
-	Status       struct {
+	ID        string
+	Level     string
+	ProjectID string `json:"-"`
+	Status    struct {
 		Services []struct{ Kind, Engine string }
 	}
 }
@@ -185,6 +185,7 @@ func findEnvironment(ctx context.Context, name string) (importTarget, error) {
 				Nodes []struct {
 					Projects struct {
 						Nodes []struct {
+							ID   string
 							Apps struct {
 								Nodes []struct {
 									Environments struct{ Nodes []importTarget }
@@ -201,15 +202,13 @@ func findEnvironment(ctx context.Context, name string) (importTarget, error) {
       nodes {
         projects(filter: { slug: $project, state: ACTIVE }, first: 1, includeShared: true) {
           nodes {
+            id
             apps(filter: { slug: $app }, first: 1) {
               nodes {
                 environments(filter: { branch: $branch }, first: 1) {
                   nodes {
                     id
                     level
-                    ownerProject {
-                      id
-                    }
                     status {
                       services {
                         kind
@@ -237,7 +236,10 @@ func findEnvironment(ctx context.Context, name string) (importTarget, error) {
 		len(teams[0].Projects.Nodes[0].Apps.Nodes[0].Environments.Nodes) == 0 {
 		return importTarget{}, fmt.Errorf("No environment %s", name)
 	}
-	return teams[0].Projects.Nodes[0].Apps.Nodes[0].Environments.Nodes[0], nil
+	project := teams[0].Projects.Nodes[0]
+	target := project.Apps.Nodes[0].Environments.Nodes[0]
+	target.ProjectID = project.ID
+	return target, nil
 }
 
 // Returns the ID of the stored file with the path name in the Files area of the project.

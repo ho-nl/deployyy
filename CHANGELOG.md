@@ -4,6 +4,17 @@ Changes to Deployyy, newest first. Each feature works in the console at
 [deployyy.com](https://deployyy.com), the API and the MCP tools. Exceptions
 are noted per entry.
 
+## 2026-11-27
+
+### Logs
+
+- **Each log line has a level.** The Logs page shows the level in a column and
+  starts with Warning, Error and Critical. The level comes from a JSON field, a
+  Monolog, nginx error or PHP-FPM line, or the status of an HTTP access line.
+- **`deployyy logs` prints and follows the logs** of an environment, or of
+  each environment below a team, a project or an app, with `--level`,
+  `--service`, `--search`, `--since` and `--json`.
+
 ## 2026-11-20
 
 ### Builds

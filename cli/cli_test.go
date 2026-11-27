@@ -688,3 +688,77 @@ func TestLocationPath(t *testing.T) {
 		}
 	}
 }
+
+func TestLogsPrintsEachPageThenFollows(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DEPLOYYY_TOKEN", "token")
+	line := func(at, level, text string) string {
+		return fmt.Sprintf(`{"at":%q,"level":%q,"service":"magento-web","text":%q,"environment":{"branch":"main","app":{"slug":"magento","project":{"slug":"shop"}}}}`, at, level, text)
+	}
+	var filters []any
+	subscriptions := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Query     string
+			Variables map[string]any
+		}
+		json.NewDecoder(r.Body).Decode(&request)
+		filters = append(filters, request.Variables["filter"])
+		switch {
+		case strings.Contains(request.Query, "scope: team(slug: $team)") && request.Variables["after"] == nil:
+			fmt.Fprintf(w, `{"data":{"scope":{"id":"gid://deployyy/Team/acme","allLogs":{"liveCursor":"live-1","edges":[{"cursor":"c3","node":%s},{"cursor":"c2","node":%s}],"pageInfo":{"hasNextPage":true,"endCursor":"c2"}}}}}`, line("10:03", "ERROR", "third"), line("10:02", "WARNING", "second"))
+		case strings.Contains(request.Query, "scope: team(slug: $team)") && request.Variables["after"] == "c2":
+			fmt.Fprintf(w, `{"data":{"scope":{"id":"gid://deployyy/Team/acme","allLogs":{"liveCursor":"ignored","edges":[{"cursor":"c1","node":%s}],"pageInfo":{"hasNextPage":false,"endCursor":"c1"}}}}}`, line("10:01", "CRITICAL", "first"))
+		case strings.Contains(request.Query, "logUpdates"):
+			subscriptions++
+			w.Header().Set("Content-Type", "text/event-stream")
+			if subscriptions == 1 {
+				if request.Variables["after"] != "live-1" || request.Variables["id"] != "gid://deployyy/Team/acme" {
+					t.Errorf("subscription variables: %v", request.Variables)
+				}
+				fmt.Fprintf(w, "event: next\ndata: {\"data\":{\"logUpdates\":{\"type\":\"DATA\",\"cursor\":\"live-2\",\"edges\":[{\"cursor\":\"c4\",\"node\":%s}]}}}\n\nevent: next\ndata: {\"data\":{\"logUpdates\":{\"type\":\"RESET\",\"cursor\":\"live-3\",\"edges\":[]}}}\n\n", line("10:04", "ERROR", "fourth"))
+				return
+			}
+			if request.Variables["after"] != "live-3" {
+				t.Errorf("reopened after %v", request.Variables["after"])
+			}
+			fmt.Fprintf(w, "event: next\ndata: {\"data\":{\"logUpdates\":{\"type\":\"DATA\",\"cursor\":\"live-4\",\"edges\":[{\"cursor\":\"c5\",\"node\":%s}]}}}\n\nevent: complete\ndata:\n\n", line("10:05", "INFO", "fifth"))
+		default:
+			t.Errorf("unexpected query %s", request.Query)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("DEPLOYYY_API", server.URL)
+
+	output, err := run(t, "", "logs", "acme", "--level", "error,warn", "--level", "critical", "--since", "2h", "--search", "SQLSTATE", "--service", "magento-web", "-f")
+	want := "10:01 CRITICAL shop/magento/main magento-web first\n" +
+		"10:02 WARNING  shop/magento/main magento-web second\n" +
+		"10:03 ERROR    shop/magento/main magento-web third\n" +
+		"10:04 ERROR    shop/magento/main magento-web fourth\n" +
+		"10:05 INFO     shop/magento/main magento-web fifth\n"
+	if err != nil || output != want {
+		t.Fatalf("logs: %v, output %q", err, output)
+	}
+	filter, _ := json.Marshal(filters[0])
+	if string(filter) != `{"lastSeconds":7200,"levels":["ERROR","WARNING","CRITICAL"],"search":"SQLSTATE","services":["magento-web"]}` {
+		t.Errorf("filter %s", filter)
+	}
+	if subscriptions != 2 {
+		t.Errorf("subscriptions %d", subscriptions)
+	}
+
+	filters = nil
+	output, err = run(t, "", "logs", "acme", "--json", "--since", "2026-11-27T09:00:00+01:00")
+	if err != nil || !strings.HasPrefix(output, line("10:01", "CRITICAL", "first")+"\n") || strings.Count(output, "\n") != 3 {
+		t.Errorf("json: %v, output %q", err, output)
+	}
+	if filter, _ := json.Marshal(filters[0]); string(filter) != `{"since":"2026-11-27T08:00:00Z"}` {
+		t.Errorf("since filter %s", filter)
+	}
+
+	for _, args := range [][]string{{"logs", "acme/shop/magento/main/extra"}, {"logs", "acme//magento"}, {"logs", "acme", "--level", "loud"}, {"logs", "acme", "--since", "yesterday"}} {
+		if _, err := run(t, "", args...); err == nil {
+			t.Errorf("%v: no error", args)
+		}
+	}
+}

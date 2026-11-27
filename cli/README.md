@@ -52,7 +52,24 @@
 
    The CLI refuses a script on a production environment: a shell on production needs a typed confirmation.
 
-6. Copy files to a location of a project, named as `<team>/<project>`. A location is a file store or a media bucket, such as `images` or `media@main`:
+6. Print the log lines of an environment, or of each environment below a team, a project or an app:
+
+   ```bash
+   deployyy logs acme/shop/magento/main --level error,critical --since 24h
+   deployyy logs acme/shop --service magento-web --search SQLSTATE -f
+   ```
+
+   Each line holds the time, the level, the environment below the scope, the source and the text, oldest first. `-f` prints each new line until Ctrl-C.
+
+   | Option | Use |
+   | --- | --- |
+   | `--level error,warning` | The levels: `debug`, `info`, `warning`, `error`, `critical` and `unknown`. Without the option, each level. |
+   | `--service magento-web` | A source, such as a process or a service. Repeat the option for more sources. |
+   | `--search SQLSTATE` | The text that each line holds. |
+   | `--since 24h` | The start, as a duration or an RFC 3339 time. Without the option, one hour ago. |
+   | `--json` | Prints each line as one JSON object. |
+
+7. Copy files to a location of a project, named as `<team>/<project>`. A location is a file store or a media bucket, such as `images` or `media@main`:
 
    ```bash
    deployyy files ls --project acme/shop
@@ -83,7 +100,7 @@
    nohup deployyy files upload backup.sql.gz --project acme/shop --path imports > upload.log 2>&1 &
    ```
 
-7. Import a database file into the running database of an environment:
+8. Import a database file into the running database of an environment:
 
    ```bash
    deployyy database import backup.sql.gz --environment acme/shop/laravel/preview-1 --into-running
@@ -120,6 +137,6 @@ go test ./...
 go run . graphql '{ viewer { preferredLoginName } }'
 ```
 
-[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell`, `files upload`, `database import` and `update` against a stub of the console, the sign-in service, the terminal service, the object store, the release server and the rclone downloads.
+[`cli_test.go`](cli_test.go) runs sign-in, `graphql`, `shell`, `logs`, `files upload`, `database import` and `update` against a stub of the console, the sign-in service, the terminal service, the object store, the release server and the rclone downloads.
 
 A tag `v<version>` on `main` starts [`cli.yml`](../.github/workflows/cli.yml). The workflow publishes the programs for macOS and Linux with `SHA256SUMS` as a GitHub release. Each GitHub release of this repository is a release of the CLI: [`install.sh`](../install.sh) and `deployyy update` install the newest one.
